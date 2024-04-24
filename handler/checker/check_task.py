@@ -39,7 +39,7 @@ class TaskBase(object):
         self.stdio.verbose("task_base execute")
         steps_nu = filter_by_version(self.task, self.cluster, self.stdio)
         if steps_nu < 0:
-            self.stdio.warn("{0} Unadapted by version. SKIP".format(self.task['name']))
+            self.stdio.warn("Unadapted by version. SKIP")
             self.report.add("Unadapted by version. SKIP", "warning")
             return "Unadapted by version.SKIP"
         self.stdio.verbose("filter_by_version is return {0}".format(steps_nu))
