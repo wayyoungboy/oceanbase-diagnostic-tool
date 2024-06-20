@@ -108,7 +108,7 @@ class CheckHandler:
             new_node.append(node)
         self.nodes = new_node
         self.version = get_version(self.nodes, self.check_target_type, self.cluster, self.stdio)
-
+        obConnectorPool = None
         # add OBConnectorPool
         try:
             obConnectorPool = checkOBConnectorPool(context, 3, self.cluster)

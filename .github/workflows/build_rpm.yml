@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - master
+      - dev
 
 jobs:
   build-and-package-x86_64:
