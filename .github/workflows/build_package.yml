@@ -22,6 +22,9 @@ jobs:
           rm -rf /etc/yum.repos.d/*
           curl -o /etc/yum.repos.d/CentOS-Base.repo https://mirrors.aliyun.com/repo/Centos-7.repo
           yum install -y wget git
+          echo "Git HTTP URL is https://github.com/${{ github.repository }}.git"
+          echo "Current branch is ${{ github.head_ref }}"
+          run: echo "Current branch is ${{ github.ref_name }}"
           git clone https://github.com/oceanbase/obdiag.git -b master
           wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh --no-check-certificate
           sh Miniconda3-latest-Linux-x86_64.sh -p /opt/miniconda3 -b
@@ -40,8 +43,6 @@ jobs:
         run: |
           export PATH=/opt/miniconda3/bin:$PATH
           source activate obdiag
-          pwd
-          cd obdiag
           pwd
           ls -lh
           export RELEASE=`date +%Y%m%d%H%M`
