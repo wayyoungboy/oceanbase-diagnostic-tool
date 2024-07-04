@@ -41,6 +41,8 @@ jobs:
           export PATH=/opt/miniconda3/bin:$PATH
           source activate obdiag
           pwd
+          cd obdiag
+          pwd
           ls -lh
           export RELEASE=`date +%Y%m%d%H%M`
           sed -i 's/pip install -r requirements3.txt/curl https:\/\/bootstrap.pypa.io\/get-pip.py -o get-pip.py\n\
