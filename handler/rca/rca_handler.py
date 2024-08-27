@@ -177,7 +177,7 @@ class RCAHandler:
             self.stdio.warn("rca_scene.execute not need execute: {0}".format(e))
             return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.execute not need execute: {0}")
         except Exception as e:
-            raise Exception("rca_scene.execute err: {0}".format(e))
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.execute err: {0}".format(e))
         try:
             self.rca_scene.export_result()
         except Exception as e:
