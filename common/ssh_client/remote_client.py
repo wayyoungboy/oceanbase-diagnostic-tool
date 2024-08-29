@@ -39,6 +39,10 @@ def dis_rsa_algorithms(state=0):
 class RemoteClient(SsherClient):
     def __init__(self, context, node):
         super().__init__(context, node)
+
+        paramiko.util.log_to_file('paramiko.log')  # 将日志输出到文件
+        paramiko.util.log_level = paramiko.util.DEBUG  # 设置日志级别为DEBUG
+
         self._sftp_client = None
         self._disabled_rsa_algorithms = None
         self.host_ip = self.node.get("ip")
