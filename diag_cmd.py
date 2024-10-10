@@ -255,10 +255,6 @@ class ObdiagOriginCommand(BaseCommand):
             if current_work_path.startswith(home_path + "/.obdiag"):
                 if StringUtils.compare_versions_lower(OBDIAG_VERSION, "3.0.0"):
                     ROOT_IO.warn("Currently executing in obdiag home directory!")
-                    import traceback
-
-                    traceback.print_stack()
-                    print(traceback.format_exc())
                 else:
                     ROOT_IO.error("Cannot be executed in the obdiag working directory!")
                     ROOT_IO.exit(1)
