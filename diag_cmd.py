@@ -250,7 +250,6 @@ class ObdiagOriginCommand(BaseCommand):
     def start_check(self):
         current_work_path = os.getcwd()
         home_path = os.path.expanduser("~")
-        OBDIAG_VERSION = "2.1"
         if '.' in OBDIAG_VERSION:
             if current_work_path.startswith(home_path + "/.obdiag"):
                 if StringUtils.compare_versions_lower(OBDIAG_VERSION, "3.0.0"):
