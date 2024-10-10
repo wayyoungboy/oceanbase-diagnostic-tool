@@ -396,6 +396,7 @@ class MajorCommand(BaseCommand):
         return super(MajorCommand, self)._mk_usage()
 
     def do_command(self):
+        self.start_check()
         if not self.is_init:
             ROOT_IO.error('%s command not init' % self.prev_cmd)
             raise SystemExit('command not init')
@@ -420,6 +421,17 @@ class MajorCommand(BaseCommand):
 
     def register_command(self, command):
         self.commands[command.name] = command
+
+    def start_check(self):
+        current_work_path = os.getcwd()
+        home_path = os.path.expanduser("~")
+        if '.' in OBDIAG_VERSION:
+            if current_work_path.startswith(home_path + "/.obdiag"):
+                if StringUtils.compare_versions_lower(OBDIAG_VERSION, "3.0.0"):
+                    ROOT_IO.warn("Currently executing in obdiag home directory!")
+                else:
+                    ROOT_IO.error("Cannot be executed in the obdiag working directory!")
+                    ROOT_IO.exit(1)
 
 
 class ObdiagGatherAllCommand(ObdiagOriginCommand):
@@ -966,7 +978,7 @@ class ObdiagCheckCommand(ObdiagOriginCommand):
         self.parser.add_option('--cases', type='string', help="check observer's cases on package_file")
         self.parser.add_option('--obproxy_cases', type='string', help="check obproxy's cases on package_file")
         self.parser.add_option('--store_dir', type='string', help='the dir to store check result, current dir by default.', default='./check_report/')
-        self.parser.add_option('--report_type', type='string', help='The type of the check report, support "table", "json", "xml", "yaml". "html", default table', default='table')
+        self.parser.add_option('--report_type', type='string', help='The type of the check report, support "table", "json", "xml", "yaml". default table', default='table')
         self.parser.add_option('-c', type='string', help='obdiag custom config', default=os.path.expanduser('~/.obdiag/config.yml'))
         self.parser.add_option('--config', action="append", type="string", help='config options Format: --config key=value')
 
