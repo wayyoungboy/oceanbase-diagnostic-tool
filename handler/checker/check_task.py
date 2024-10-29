@@ -63,6 +63,8 @@ class TaskBase(object):
             steps = self.task[steps_nu]
             nu = 1
             task_variable_dict = {}
+            # input env to task_variable_dict
+            task_variable_dict = self.context.get_variable("env") or {}
             for step in steps["steps"]:
                 try:
                     self.stdio.verbose("step nu: {0}".format(nu))
