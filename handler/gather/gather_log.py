@@ -178,7 +178,6 @@ class GatherLogHandler(BaseShellHandler):
         nodes_threads = []
         self.stdio.print("gather nodes's log start. Please wait a moment...")
         old_silent = self.stdio.silent
-        self.stdio.start_loading("start gather")
         self.stdio.set_silent(True)
         for node in self.nodes:
             if not self.is_ssh:
