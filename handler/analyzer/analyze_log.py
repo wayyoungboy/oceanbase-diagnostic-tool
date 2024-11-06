@@ -150,6 +150,7 @@ class AnalyzeLogHandler(BaseShellHandler):
         nodes_threads = []
         self.stdio.print("analyze nodes's log start. Please wait a moment...")
         old_silent = self.stdio.silent
+        self.stdio.start_loading("start gather log")
         self.stdio.set_silent(True)
         for node in self.nodes:
             if not self.is_ssh:
@@ -162,8 +163,8 @@ class AnalyzeLogHandler(BaseShellHandler):
         for node_thread in nodes_threads:
             node_thread.join()
         self.stdio.set_silent(old_silent)
-
-        self.stdio.start_loading('analyze result start')
+        self.stdio.stop_loading("succeed")
+        self.stdio.start_loading('analyze log start')
         title, field_names, summary_list, summary_details_list = self.__get_overall_summary(analyze_tuples, self.directly_analyze_files)
         analyze_info_nodes = []
         for summary in summary_list:
@@ -176,7 +177,7 @@ class AnalyzeLogHandler(BaseShellHandler):
                     break
             analyze_info_nodes.append(analyze_info_node)
         table = tabulate.tabulate(summary_list, headers=field_names, tablefmt="grid", showindex=False)
-        self.stdio.stop_loading('analyze result success')
+        self.stdio.stop_loading('analyze log success')
         self.stdio.print(title)
         self.stdio.print(table)
         with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
