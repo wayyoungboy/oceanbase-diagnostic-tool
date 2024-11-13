@@ -252,8 +252,6 @@ class TestRemoteClient(unittest.TestCase):
         # Confirm that a verbose log message was generated
         self.remote_client.stdio.verbose.assert_called_once_with('Download 192.168.1.1:/remote/path/file.txt')
 
-
-
     @patch('common.ssh_client.remote_client.paramiko')
     def test_upload(self, mock_paramiko):
         """
