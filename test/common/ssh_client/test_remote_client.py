@@ -190,7 +190,6 @@ class TestRemoteClient(unittest.TestCase):
         self.remote_client._sftp_client = MagicMock()
         self.remote_client.stdio = MagicMock()
         self.remote_client.stdio.verbose = MagicMock()
-        self.remote_client.progress_bar = MagicMock()
         self.remote_client.host_ip = "192.168.1.1"
 
         # Define remote and local paths for testing the download functionality
@@ -204,7 +203,7 @@ class TestRemoteClient(unittest.TestCase):
         self.remote_client.download(remote_path, local_path)
 
         # Verify that the get method was called once with the correct parameters during the download process
-        self.remote_client._sftp_client.get.assert_called_once_with(remote_path, local_path, callback=self.remote_client.progress_bar)
+        self.remote_client._sftp_client.get.assert_called_once_with(remote_path, local_path)
 
         # Verify that the close method was called once after the download completes
         self.remote_client._sftp_client.close.assert_called_once()
@@ -227,7 +226,6 @@ class TestRemoteClient(unittest.TestCase):
         self.remote_client._sftp_client = MagicMock()
         self.remote_client.stdio = MagicMock()
         self.remote_client.stdio.verbose = MagicMock()
-        self.remote_client.progress_bar = MagicMock()
         self.remote_client.host_ip = "192.168.1.1"
 
         # Define the remote and local file paths
@@ -243,7 +241,7 @@ class TestRemoteClient(unittest.TestCase):
             self.remote_client.download(remote_path, local_path)
 
         # Confirm that the get method was called once with the correct parameters
-        self.remote_client._sftp_client.get.assert_called_once_with(remote_path, local_path, callback=self.remote_client.progress_bar)
+        self.remote_client._sftp_client.get.assert_called_once_with(remote_path, local_path)
 
         # Manually call the close method to mimic actual behavior
         self.remote_client._sftp_client.close()
@@ -254,76 +252,7 @@ class TestRemoteClient(unittest.TestCase):
         # Confirm that a verbose log message was generated
         self.remote_client.stdio.verbose.assert_called_once_with('Download 192.168.1.1:/remote/path/file.txt')
 
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_progress_bar(self, mock_stdout):
-        """
-        Tests the progress bar display.
 
-        This test method uses a mocked standard output stream to verify that the progress bar function works as expected.
-        Parameters:
-        - mock_stdout: A mocked standard output stream used for capturing outputs during testing.
-        """
-
-        # Setup test data: 1KB has been transferred, and a total of 1MB needs to be transferred
-        transferred = 1024  # 1KB
-        to_be_transferred = 1048576  # 1MB
-
-        # Set the suffix for the progress bar, used for testing
-        suffix = 'test_suffix'
-
-        # Set the length of the progress bar
-        bar_len = 20
-
-        # Calculate the filled length of the progress bar
-        filled_len = int(round(bar_len * transferred / float(to_be_transferred)))
-
-        # Generate the progress bar string: green-filled part + unfilled part
-        bar = '\033[32;1m%s\033[0m' % '=' * filled_len + '-' * (bar_len - filled_len)
-
-        # Call the function under test: update the progress bar
-        self.remote_client.progress_bar(transferred, to_be_transferred, suffix)
-
-        # Flush the standard output to prepare for checking the output
-        mock_stdout.flush()
-
-        # Construct the expected output string
-        expected_output = 'Downloading [%s] %s%s%s %s %s\r' % (bar, '\033[32;1m0.0\033[0m', '% [', self.remote_client.translate_byte(transferred), ']', suffix)
-
-        # Verify that the output contains the expected output string
-        self.assertIn(expected_output, mock_stdout.getvalue())
-
-    @patch('sys.stdout', new_callable=StringIO)
-    def test_progress_bar_complete(self, mock_stdout):
-        """
-        Test the completion of the progress bar.
-
-        This test case verifies the display of the progress bar when the transfer is complete.
-        Parameters:
-        - mock_stdout: A mock object used to capture standard output for verifying the output content.
-        """
-
-        # Set up parameters for file size and progress bar
-        transferred = 1048576  # 1MB
-        to_be_transferred = 1048576  # 1MB
-        suffix = 'test_suffix'
-        bar_len = 20
-
-        # Calculate the filled length of the progress bar
-        filled_len = int(round(bar_len * transferred / float(to_be_transferred)))
-
-        # Construct the progress bar string
-        bar = '\033[32;1m%s\033[0m' % '=' * filled_len + '-' * (bar_len - filled_len)
-
-        # Call the function under test
-        self.remote_client.progress_bar(transferred, to_be_transferred, suffix)
-        mock_stdout.flush()
-
-        # Expected output content
-        expected_output = 'Downloading [%s] %s%s%s %s %s\r' % (bar, '\033[32;1m100.0\033[0m', '% [', self.remote_client.translate_byte(transferred), ']', suffix)
-
-        # Verify that the output is as expected
-        self.assertIn(expected_output, mock_stdout.getvalue())
-        self.assertIn('\r\n', mock_stdout.getvalue())
 
     @patch('common.ssh_client.remote_client.paramiko')
     def test_upload(self, mock_paramiko):
