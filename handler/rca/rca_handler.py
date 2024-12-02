@@ -174,7 +174,7 @@ class RCAHandler:
             self.rca_scene.execute()
         except RCANotNeedExecuteException as e:
             self.stdio.warn("rca_scene.execute not need execute: {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, data={"result": "rca_scene.execute not need execute"})
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data={"result": "rca_scene.execute not need execute"})
         except Exception as e:
             self.stdio.error("rca_scene.execute err: {0}".format(e))
             return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.execute err: {0}".format(e))
@@ -198,7 +198,7 @@ class RCAHandler:
             + Style.RESET_ALL
             + "'"
         )
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.get_result_path(), "record": self.rca_scene.Result.records_data()})
+        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.get_result_path(), "record": self.rca_scene.Result.records_data(), "record_path": self.rca_scene.Result.get_record_path()})
 
 
 class RcaScene:
@@ -252,6 +252,9 @@ class RcaScene:
     def export_result(self):
         return self.Result.export()
 
+    def get_record_path(self):
+        return self.Result.record_file_name
+
     def save_data(self, data, save_path):
         with open(save_path, "w") as f:
             f.write(str(data))
@@ -270,6 +273,7 @@ class Result:
 
     def __init__(self, context):
         # self.suggest = ""
+        self.record_file_name = None
         self.records = []
         self.context = context
         self.stdio = context.stdio
