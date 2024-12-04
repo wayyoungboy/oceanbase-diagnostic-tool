@@ -147,7 +147,9 @@ class Manager(SafeStdio):
 
 class ConfigManager(Manager):
 
-    def __init__(self, config_file=None, stdio=None, config_env_list=[]):
+    def __init__(self, config_file=None, stdio=None, config_env_list=None):
+        if config_env_list is None:
+            config_env_list = []
         default_config_path = os.path.join(os.path.expanduser("~"), ".obdiag", "config.yml")
         if config_env_list is None or len(config_env_list) == 0:
             if config_file is None or not os.path.exists(config_file):
@@ -287,15 +289,14 @@ class ConfigManager(Manager):
             'servers': oms_nodes,
         }
 
-    @property
-    def get_node_config(self, type, node_ip, config_item):
-        if type == 'ob_cluster':
-            nodes = self.get_ob_cluster_config()['servers']
-        elif type == 'ob_proxy':
-            nodes = self.get_obproxy_config()['servers']
+    def get_node_config(self, node_type, node_ip, config_item):
+        nodes = []
+        if node_type == 'ob_cluster':
+            nodes = self.get_ob_cluster_config['servers']
+        elif node_type == 'ob_proxy':
+            nodes = self.get_obproxy_config['servers']
         else:
             self.stdio.exception(f"Unsupported cluster type: {type}")
-
         for node in nodes:
             if node['ip'] == node_ip:
                 return node.get(config_item)
