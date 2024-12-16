@@ -11,7 +11,7 @@
 # See the Mulan PSL v2 for more details.
 
 """
-@time: 2024/1/2
+@time: 2024/12/2
 @file: oms_full_trans.py
 @desc:
 """
