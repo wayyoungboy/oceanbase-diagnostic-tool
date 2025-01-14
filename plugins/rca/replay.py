@@ -4,36 +4,38 @@ from os import listdir
 from os.path import isfile, join
 import argparse
 
-log_type_dict = {1: 'TRANS_SERVICE_LOG_BASE_TYPE',
-                 2: 'TABLET_OP_LOG_BASE_TYPE',
-                 3: 'STORAGE_SCHEMA_LOG_BASE_TYPE',
-                 4: 'TABLET_SEQ_SYNC_LOG_BASE_TYPE',
-                 5: 'DDL_LOG_BASE_TYPE',
-                 6: 'KEEP_ALIVE_LOG_BASE_TYPE',
-                 7: 'TIMESTAMP_LOG_BASE_TYPE',
-                 8: 'TRANS_ID_LOG_BASE_TYPE',
-                 9: 'GC_LS_LOG_BASE_TYPE',
-                 10: 'MAJOR_FREEZE_LOG_BASE_TYPE',
-                 11: 'PRIMARY_LS_SERVICE_LOG_BASE_TYPE',
-                 12: 'RECOVERY_LS_SERVICE_LOG_BASE_TYPE',
-                 13: 'STANDBY_TIMESTAMP_LOG_BASE_TYPE',
-                 14: 'GAIS_LOG_BASE_TYPE',
-                 15: 'DAS_ID_LOG_BASE_TYPE',
-                 16: 'RESTORE_SERVICE_LOG_BASE_TYPE',
-                 17: 'RESERVED_SNAPSHOT_LOG_BASE_TYPE',
-                 18: 'MEDIUM_COMPACTION_LOG_BASE_TYPE',
-                 19: 'ARB_GARBAGE_COLLECT_SERVICE_LOG_BASE_TYPE',
-                 20: 'DATA_DICT_LOG_BASE_TYPE',
-                 21: 'ARBITRATION_SERVICE_LOG_BASE_TYPE',
-                 22: 'NET_STANDBY_TNT_SERVICE_LOG_BASE_TYPE',
-                 23: 'NET_ENDPOINT_INGRESS_LOG_BASE_TYPE',
-                 24: 'HEARTBEAT_SERVICE_LOG_BASE_TYPE',
-                 25: 'PADDING_LOG_BASE_TYPE',
-                 26: 'DUP_TABLE_LOG_BASE_TYPE',
-                 27: 'OBJ_LOCK_GARBAGE_COLLECT_SERVICE_LOG_BASE_TYPE'
-                }
+log_type_dict = {
+    1: 'TRANS_SERVICE_LOG_BASE_TYPE',
+    2: 'TABLET_OP_LOG_BASE_TYPE',
+    3: 'STORAGE_SCHEMA_LOG_BASE_TYPE',
+    4: 'TABLET_SEQ_SYNC_LOG_BASE_TYPE',
+    5: 'DDL_LOG_BASE_TYPE',
+    6: 'KEEP_ALIVE_LOG_BASE_TYPE',
+    7: 'TIMESTAMP_LOG_BASE_TYPE',
+    8: 'TRANS_ID_LOG_BASE_TYPE',
+    9: 'GC_LS_LOG_BASE_TYPE',
+    10: 'MAJOR_FREEZE_LOG_BASE_TYPE',
+    11: 'PRIMARY_LS_SERVICE_LOG_BASE_TYPE',
+    12: 'RECOVERY_LS_SERVICE_LOG_BASE_TYPE',
+    13: 'STANDBY_TIMESTAMP_LOG_BASE_TYPE',
+    14: 'GAIS_LOG_BASE_TYPE',
+    15: 'DAS_ID_LOG_BASE_TYPE',
+    16: 'RESTORE_SERVICE_LOG_BASE_TYPE',
+    17: 'RESERVED_SNAPSHOT_LOG_BASE_TYPE',
+    18: 'MEDIUM_COMPACTION_LOG_BASE_TYPE',
+    19: 'ARB_GARBAGE_COLLECT_SERVICE_LOG_BASE_TYPE',
+    20: 'DATA_DICT_LOG_BASE_TYPE',
+    21: 'ARBITRATION_SERVICE_LOG_BASE_TYPE',
+    22: 'NET_STANDBY_TNT_SERVICE_LOG_BASE_TYPE',
+    23: 'NET_ENDPOINT_INGRESS_LOG_BASE_TYPE',
+    24: 'HEARTBEAT_SERVICE_LOG_BASE_TYPE',
+    25: 'PADDING_LOG_BASE_TYPE',
+    26: 'DUP_TABLE_LOG_BASE_TYPE',
+    27: 'OBJ_LOCK_GARBAGE_COLLECT_SERVICE_LOG_BASE_TYPE',
+}
 
 s = 'observer.log.20230225144757584:[2023-02-25 14:47:49.740726] ERROR try_recycle_blocks (palf_env_impl.cpp:688) [68708][T1014_PalfGC][T1014][Y0-0000000000000000-0-0] [lt=2][errcode=-4264] Log out of disk space(msg="log disk space is almost full", ret=-4264, total_size(MB)=22118, used_size(MB)=20470, used_percent(%)=92, warn_size(MB)=17694, warn_percent(%)=80, limit_size(MB)=21012, limit_percent(%)=95, maximum_used_size(MB)=20132, maximum_log_stream=1001, oldest_log_stream=1001, oldest_scn={val:1677248265845607707})'
+
 
 class CommonUtil:
     @staticmethod
@@ -119,6 +121,7 @@ class CommonUtil:
     def timestamp_to_datetime(timestamp):
         return datetime.fromtimestamp(float(timestamp) / 1000000)
 
+
 class LOGFileCommonUtil:
     @staticmethod
     def gen_log_file_name(log_time):
@@ -154,12 +157,15 @@ class LOGFileCommonUtil:
             res.append(special_file)
         return res
 
+
 class CLOGCommonUtil:
     @staticmethod
     def scn_to_datetime(scn):
         return datetime.fromtimestamp(float(scn) / 1000000000)
 
+
 s_replay = '[2023-02-28 15:41:41.615214] INFO  [CLOG] get_min_unreplayed_log_info (ob_replay_status.cpp:1025) [183155][T1020_TenantWea][T1020][Y0-0000000000000000-0-0] [lt=22] get_min_unreplayed_log_info(lsn={lsn:537327734}, scn={val:1677522022928086323}, this={ls_id_:{id:1001}, is_enabled_:true, is_submit_blocked_:false, role_:1, err_info_:{lsn_:{lsn:18446744073709551615}, scn_:{val:0}, log_type_:0, is_submit_err_:false, err_ts_:0, err_ret_:0}, ref_cnt_:2, post_barrier_lsn_:{lsn:18446744073709551615}, pending_task_count_:0, submit_log_task_:{ObReplayServiceSubmitTask:{type_:1, enqueue_ts_:1677570101608334, err_info_:{has_fatal_error_:false, fail_ts_:0, fail_cost_:1655842, ret_code_:0}}, next_to_submit_lsn_:{lsn:537327734}, committed_end_lsn_:{lsn:537327734}, next_to_submit_scn_:{val:1677522022928086323}, base_lsn_:{lsn:268419072}, base_scn_:{val:1677505291781075774}, iterator_:{iterator_impl:{buf_:0x7f4946405000, next_round_pread_size:2117632, curr_read_pos:122, curr_read_buf_start_pos:0, curr_read_buf_end_pos:122, log_storage_:{IteratorStorage:{start_lsn:{lsn:537327612}, end_lsn:{lsn:537327734}, read_buf:{buf_len_:2121728, buf_:0x7f4946405000}, block_size:67104768, log_storage_:0x7f602b8c5070, read_buf_has_log_block_header:false}, IteratorStorageType::"DiskIteratorStorage"}, curr_entry_is_raw_write:false, curr_entry_size:0, prev_entry_scn:{val:1677522022928086322}, curr_entry:{LogEntryHeader:{magic:19528, version:1, log_size:34, scn_:{val:1677522022928086322}, data_checksum:154833137, flag:0}}, init_mode_version:0}}}})'
+
 
 class CLOGReplayPointLog:
     @staticmethod
@@ -194,7 +200,9 @@ class CLOGReplayPointLog:
 
         return log_time - scn_time > stuck_delta
 
+
 s_replay_submit = '[2023-03-15 02:54:18.924545] INFO  [CLOG] check_can_submit_log_replay_task_ (ob_log_replay_service.cpp:919) [3101][T1002_ReplaySrv][T1002][Y0-0000000000000000-0-0] [lt=43] submit replay task need retry(ret=-4023, replay_status={ls_id_:{id:1002}, is_enabled_:true, is_submit_blocked_:false, role_:2, err_info_:{lsn_:{lsn:18446744073709551615}, scn_:{val:0}, log_type_:0, is_submit_err_:false, err_ts_:0, err_ret_:0}, ref_cnt_:2, post_barrier_lsn_:{lsn:18446744073709551615}, pending_task_count_:0, submit_log_task_:{ObReplayServiceSubmitTask:{type_:1, enqueue_ts_:1678820058924418, err_info_:{has_fatal_error_:false, fail_ts_:1678820057918638, fail_cost_:1684661279, ret_code_:-4023}}, next_to_submit_lsn_:{lsn:249675719192}, committed_end_lsn_:{lsn:318345664041}, next_to_submit_scn_:{val:1678818773053498492}, base_lsn_:{lsn:0}, base_scn_:{val:1678801659077434360}, iterator_:{iterator_impl:{buf_:0x7f709aa05000, next_round_pread_size:2121728, curr_read_pos:1799087, curr_read_buf_start_pos:0, curr_read_buf_end_pos:2121728, log_storage_:{IteratorStorage:{start_lsn:{lsn:249673920161}, end_lsn:{lsn:249676041889}, read_buf:{buf_len_:2125824, buf_:0x7f709aa05000}, block_size:67104768, log_storage_:0x7f703a3f8070}, IteratorStorageType::"DiskIteratorStorage"}, curr_entry_is_raw_write:false, curr_entry_size:260041, prev_entry_scn:{val:1678818773053498492}, curr_entry:{LogEntryHeader:{magic:19528, version:1, log_size:260009, scn_:{val:1678818773053498492}, data_checksum:1248814280, flag:1}}, init_mode_version:0, accumlate_checksum:1264936096}}}}, replay_task={ls_id_:{id:1002}, log_type_:1, lsn_:{lsn:249675719248}, scn_:{val:1678818773053498492}, is_pre_barrier_:false, is_post_barrier_:false, log_size_:260009, replay_hint_:3353829, is_raw_write_:false, first_handle_ts_:-1, replay_cost_:-1, retry_cost_:-1, log_buf_:0x7f6da2702308}, is_wait_barrier=false, is_tenant_out_of_mem=true)'
+
 
 class ReplaySubmitLog:
     @staticmethod
@@ -209,9 +217,11 @@ class ReplaySubmitLog:
         res = re.search(p, line)
         return res >= 0
 
+
 class ReplaySlowLog:
     log_type_pattern1 = None
     log_type_pattern2 = None
+
     @staticmethod
     def is_replay_slow_log(line):
         p = "single replay task cost too much time"
@@ -241,10 +251,12 @@ class ReplaySlowLog:
         replay_cost = line.split('replay_cost_:')[1].split(',')[0]
         return int(replay_cost)
 
+
 class SlowReplayChecker:
     PREFIX = '[REPLAY DETECT] '
     ENDL = '\n'
     NEXT_SEC = '\n\n'
+
     def __init__(self, tenant_id, ls_id, start_check_time, interval=60, log_dir_path='./', res_file='result.txt'):
         self.res_file = res_file
         self.log_dir_path = log_dir_path
@@ -252,18 +264,16 @@ class SlowReplayChecker:
         self.step = 1
         self.tenant_id = tenant_id
         self.ls_id = ls_id
-        self.rfd = None   # the result file fd
-        self.log_time = start_check_time # the time of the error log
-        self.need_check_log_files = None # the log file that need to be examed
+        self.rfd = None  # the result file fd
+        self.log_time = start_check_time  # the time of the error log
+        self.need_check_log_files = None  # the log file that need to be examed
 
     def __prepare(self):
         # open the result file
         self.rfd = open('result.txt', 'w')
 
         self.rfd.write(self.PREFIX + str(self.step) + ' ANALYZE REPLAY:' + self.ENDL)
-        self.rfd.write('tenant_id:{tenant_id}, ls_id:{ls_id}, log_time:{log_time}'.format(tenant_id=self.tenant_id,
-                                                                                          ls_id = self.ls_id,
-                                                                                          log_time = self.log_time) + self.ENDL)
+        self.rfd.write('tenant_id:{tenant_id}, ls_id:{ls_id}, log_time:{log_time}'.format(tenant_id=self.tenant_id, ls_id=self.ls_id, log_time=self.log_time) + self.ENDL)
         self.rfd.write(self.NEXT_SEC)
         self.step = self.step + 1
 
@@ -292,9 +302,7 @@ class SlowReplayChecker:
                 else:
                     rfname = self.need_check_log_files[index + 1]
             except Exception as e:
-                print("find the nex file of {fname} failed, the file index is {index}, the log file array is {array}".format(fname=fname,
-                                                                                                                             index=index,
-                                                                                                                             array=self.need_check_log_files))
+                print("find the nex file of {fname} failed, the file index is {index}, the log file array is {array}".format(fname=fname, index=index, array=self.need_check_log_files))
         return rfname
 
     def __check_exist_log(self, check_func, fname):
@@ -354,9 +362,7 @@ class SlowReplayChecker:
         else:
             if is_replay_stuck:
                 self.rfd.write('REPLAY IS STUCK' + self.ENDL)
-                self.rfd.write('LOG_TIME:{log_time}, REPLAY_SCN_TIME:{replay_scn_time}, GAP:{gap}'.format(log_time=str(log_time),
-                                                                                                   replay_scn_time=str(replay_scn_time),
-                                                                                                   gap=str(log_time - replay_scn_time)) + self.ENDL)
+                self.rfd.write('LOG_TIME:{log_time}, REPLAY_SCN_TIME:{replay_scn_time}, GAP:{gap}'.format(log_time=str(log_time), replay_scn_time=str(replay_scn_time), gap=str(log_time - replay_scn_time)) + self.ENDL)
                 self.rfd.write('REPLAY POINT: {replay_scn}'.format(replay_scn=replay_scn) + self.ENDL)
             else:
                 self.rfd.write('REPLAY NOT STUCK' + self.ENDL)
@@ -429,7 +435,7 @@ class SlowReplayChecker:
             f.close()
             if count != 0:
                 self.rfd.write('SLOW REPLAY LIST:' + self.ENDL)
-                for k,v in slow_replay_count_dict.items():
+                for k, v in slow_replay_count_dict.items():
                     self.rfd.write('log_type:' + str(k) + ',' + log_type_dict.get(k, "unkown type") + ', slow_replay_count:' + str(v) + self.ENDL)
                 self.rfd.write(self.ENDL)
                 for line in slow_replay_lines:
@@ -446,7 +452,7 @@ class SlowReplayChecker:
 
     def execute(self):
         # 1. prepare the replay check
-        self.__prepare();
+        self.__prepare()
         # 2. get log file
         self.__get_log_files()
 
@@ -469,7 +475,8 @@ class SlowReplayChecker:
 
 def main(tenant_id, ls_id, end_time, interval, log_dir):
     checker = SlowReplayChecker(tenant_id, ls_id, end_time, interval, log_dir)
-    checker.execute();
+    checker.execute()
+
 
 if __name__ == "__main__":
     now = datetime.now()
