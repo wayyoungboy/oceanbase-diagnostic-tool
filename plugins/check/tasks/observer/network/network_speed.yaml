@@ -13,7 +13,7 @@ task:
         set_value: network_speed
         verify: '[[ ! -z  "$network_speed" ]]'
         #report_type: warning
-        err_msg: "network_speed is null , can not get real speed"
+        err_msg: "network_speed is null , can not get real speed. Please check the network_speed: ethtool #{network_name} 2>/dev/null| grep Speed"
     - type: ssh
       ssh: "ethtool #{network_name} 2>/dev/null| grep Speed"
       result:
@@ -28,17 +28,12 @@ task:
         verify_type: min
         verify: 999
         #report_type: warning
-        err_msg: "network_speed is #{network_speed} , less than #{network_speed}"
+        err_msg: "network_speed is #{network_speed} , less than 1Gbps"
     - type: ssh
-      ssh: "cat /sys/class/net/#{network_name}/speed "
+      ssh: "ethtool #{network_name} 2>/dev/null | grep Speed | grep -o '[0-9]*'"
       result:
         set_value: network_speed
         verify_type: min
-        verify: 999
-        #report_type: warning
-        err_msg: "network_speed is #{network_speed} , less than #{network_speed}"
-
-        
-        
-    
-
+        verify: 9999
+        report_type: warning
+        err_msg: "network_speed is #{network_speed} , less than 10Gbps. Unexpected exceptions may occur when performing replica operations"

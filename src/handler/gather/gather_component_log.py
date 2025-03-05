@@ -152,6 +152,8 @@ class GatherComponentLogHandler(BaseShellHandler):
                 self.nodes = self.context.obproxy_config.get("servers")
             elif self.target == 'oms':
                 self.nodes = self.context.oms_config.get("servers")
+            elif self.target == 'oms_cdc':
+                self.nodes = self.context.oms_cdc_config.get("servers")
             else:
                 raise Exception("can not get nodes by target: {0}".format(self.target))
         if len(self.nodes) == 0:

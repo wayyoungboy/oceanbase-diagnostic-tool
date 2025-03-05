@@ -46,7 +46,7 @@ class OMSFullTransScene(RcaScene):
                 try:
                     self.stdio.verbose("node:{0} check oms woker path: {1}/{2}".format(ssh_client.get_ip(), server.get("run_path"), self.component_id))
                     ssh_client.exec_cmd("cd {0}/{1}".format(server.get("run_path"), self.component_id))
-                except Exception as e:
+                except Exception:
                     self.record.add_record("node:{0} run_path: {1}/{2} is not exist.".format(ssh_client.get_ip(), server.get("run_path"), self.component_id))
                     self.record.add_suggest("the component's work path is not exist. May be the oms'resource is not enough.")
                     return

@@ -13,7 +13,11 @@ pip3 install -r requirements3.txt/' ./rpm/oceanbase-diagnostic-tool.spec
     cat ./rpm/oceanbase-diagnostic-tool.spec
     yum install rpm-build -y
     rpmbuild -bb ./rpm/oceanbase-diagnostic-tool.spec
-    find ~/rpmbuild -name oceanbase-diagnostic-tool-*.rpm
+    echo "*${RELEASE}*.rpm"
+    find ~/rpmbuild -name "*${RELEASE}*.rpm"
+    rpm_path=$(find ~/rpmbuild -name "*202503032048*.rpm")
+    echo obdiag rpm build success: $rpm_path
+    clean_old_rpm_data
 }
 
 download_obstack() {

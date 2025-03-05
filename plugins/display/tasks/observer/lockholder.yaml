@@ -11,7 +11,6 @@ from   oceanbase.__all_virtual_lock_wait_stat a
 left join  oceanbase.__all_virtual_tablet_to_ls b on b.tablet_id=a.tablet_id and a.tenant_id=b.tenant_id
 left join  oceanbase.__all_virtual_table c on b.table_id=c.table_id order by c.table_name,a.tenant_id;"
         global: true
-        global: true
   - version: "[*,3.9.9.9]"
     steps:
       - type: sql

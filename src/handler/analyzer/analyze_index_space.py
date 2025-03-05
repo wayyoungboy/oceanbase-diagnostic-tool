@@ -41,6 +41,7 @@ def translate_byte(B):
 
 class AnalyzeIndexSpaceHandler(object):
     def __init__(self, context):
+        self.main_table_sum_of_data_length = None
         self.context = context
         self.stdio = context.stdio
         self.ob_version = get_observer_version(self.context)
