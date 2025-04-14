@@ -17,12 +17,12 @@
 """
 import threading
 
-from src.common.command import get_observer_version
+from src.common.command import get_observer_version, get_obproxy_version
 from src.common.ob_connector import OBConnector
 from src.common.ssh_client.ssh import SshClient
 from src.handler.checker.check_exception import StepResultFailException, StepExecuteFailException, StepResultFalseException, TaskException
 from src.handler.checker.step.stepbase import StepBase
-from src.common.tool import StringUtils
+from src.common.tool import StringUtils, Util
 from src.common.scene import filter_by_version
 
 
@@ -159,19 +159,21 @@ class TaskBase:
                 self.obproxy_nodes.append(node)
 
         # build observer_version by sql or ssher. If using SSHer, the observer_version is set to node[0].
-        self.observer_version = ""
-        try:
-            self.observer_version = get_observer_version(self.context)
-        except Exception as e:
-            self.stdio.error("get observer_version fail: {0}".format(e))
-        self.ob_connector = OBConnector(
-            context=self.context,
-            ip=self.ob_cluster.get("db_host"),
-            port=self.ob_cluster.get("db_port"),
-            username=self.ob_cluster.get("tenant_sys").get("user"),
-            password=self.ob_cluster.get("tenant_sys").get("password"),
-            timeout=10000,
-        )
+        cases = Util.get_option(self.context.options, "cases")
+        if cases != "build_before":
+            try:
+                self.observer_version = get_observer_version(self.context)
+            except Exception as e:
+                self.stdio.error("get observer_version fail: {0}".format(e))
+
+            self.ob_connector = OBConnector(
+                context=self.context,
+                ip=self.ob_cluster.get("db_host"),
+                port=self.ob_cluster.get("db_port"),
+                username=self.ob_cluster.get("tenant_sys").get("user"),
+                password=self.ob_cluster.get("tenant_sys").get("password"),
+                timeout=10000,
+            )
 
     def check_ob_version_min(self, min_version):
         if self.observer_version is None:
