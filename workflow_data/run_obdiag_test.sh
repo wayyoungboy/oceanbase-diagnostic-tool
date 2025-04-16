@@ -10,7 +10,7 @@ function check_error_log {
   fi
 }
 # cp ~/.obdiag/config.yml ./config.yml for "obdiag {command} -c ./config.yml"
-cp ~/.obdiag/config.yml ~/config.yml
+cp ~/.obdiag/config.yml ./config.yml
 echo "=================obdiag check================="
 check_error_log  "obdiag check"
 echo "=================obdiag check list================="
@@ -21,8 +21,8 @@ echo "=================obdiag check run --store_dir ./check================="
 check_error_log  "obdiag check run --store_dir ./check"
 echo "=================obdiag check run --report_type yaml================="
 check_error_log  "obdiag check run --report_type yaml"
-echo "=================obdiag check run -c ~/config.yml================="
-check_error_log  "obdiag check run -c ~/config.yml"
+echo "=================obdiag check run -c ./config.yml================="
+check_error_log  "obdiag check run -c ./config.yml"
 echo "=================obdiag check run --cases=ad================="
 check_error_log  "obdiag check run --cases=ad"
 echo "=================obdiag check run --cases=column_storage_poc================="
