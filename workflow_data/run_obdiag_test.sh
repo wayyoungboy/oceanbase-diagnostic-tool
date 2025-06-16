@@ -2,6 +2,7 @@
 echo $tag
 # error code save file
 touch error_code.txt
+timedatectl
 function check_error_log {
   echo "Executing command: $1 --inner_config=\"obdiag.basic.telemetry=False\""
   output=$($1 --inner_config="obdiag.basic.telemetry=False")
