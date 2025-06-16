@@ -146,10 +146,12 @@ check_error_log  "obdiag gather scene run --scene=observer.restart"
 check_error_log  "obdiag gather scene run --scene=observer.rootservice_switch"
 #check_error_log  "obdiag gather scene run --scene=observer.unknown" &
 check_error_log  "obdiag gather scene run --scene=observer.base" &
-#check_error_log  "obdiag gather ash" &
-#check_error_log  "obdiag gather ash --report_type TEXT" &
-#check_error_log  "obdiag gather ash --store_dir ./ash" &
+check_error_log  "obdiag gather ash" &
+check_error_log  "obdiag gather ash --report_type TEXT" &
+check_error_log  "obdiag gather ash --store_dir ./ash" &
 check_error_log  "obdiag rca list"
+obclient -h127.0.0.1 -u root -P2881 -e 'SELECT MIN(SAMPLE_TIME) AS ASH_BEGIN_TIME, MAX(SAMPLE_TIME) AS ASH_END_TIME from oceanbase.gv$ob_active_session_history;'
+obclient -h127.0.0.1 -u root -P2881 -e 'SELECT MIN(SAMPLE_TIME) AS ASH_BEGIN_TIME, MAX(SAMPLE_TIME) AS ASH_END_TIME from oceanbase.cdb_wr_active_session_history;'
 #echo "=================obdiag rca run================="
 #check_error_log  "obdiag rca run"
 #echo "=================obdiag rca run --scene=major_hold================="
