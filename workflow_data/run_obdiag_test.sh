@@ -153,7 +153,7 @@ check_error_log  "obdiag gather ash" &
 check_error_log  "obdiag gather ash --report_type TEXT" &
 check_error_log  "obdiag gather ash --store_dir ./ash" &
 check_error_log  "obdiag rca list"
-cat ./ash/*/
+cat ./obdiag_gather_pack*/ash_repor*
 obclient -h127.0.0.1 -u root -P2881 -e 'SELECT MIN(SAMPLE_TIME) AS ASH_BEGIN_TIME, MAX(SAMPLE_TIME) AS ASH_END_TIME from oceanbase.gv$ob_active_session_history;'
 obclient -h127.0.0.1 -u root -P2881 -e 'SELECT MIN(SAMPLE_TIME) AS ASH_BEGIN_TIME, MAX(SAMPLE_TIME) AS ASH_END_TIME from oceanbase.cdb_wr_active_session_history;'
 # show variables like 'time_zone';
