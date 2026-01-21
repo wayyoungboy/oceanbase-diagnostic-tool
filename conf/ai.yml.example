@@ -85,6 +85,31 @@ mcp:
   #
   servers: ""
 
+# OBI (OceanBase Intelligence) Configuration
+# OBI is OceanBase's AI-powered knowledge base and diagnostic assistant
+# This feature is currently in beta testing. To request access, please post in the community Q&A section at https://ask.oceanbase.com/
+obi:
+  # Whether to enable OBI integration
+  enabled: false
+  
+  # OBI server base URL
+  # Production environment: https://ai-api.oceanbase.com Please not change this value
+  base_url: "https://ai-api.oceanbase.com"
+  
+  # Application code for OBI access
+  # Get this from the OBI platform ，Please not change this value
+  app_code: "H8nMXUN7uYOzXGU7"
+  
+  # Authentication cookie value
+  # This should be the complete cookie string from your browser
+  # Example: "xxxx"
+  cookie: ""
+  
+  # Timeout settings (in seconds)
+  timeout:
+    auth: 10
+    search: 30
+
 # UI Configuration
 ui:
   # Show welcome message on startup
