@@ -93,7 +93,9 @@ class GatherPerfHandler(BaseShellHandler):
                 self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
                 os.makedirs(os.path.abspath(store_dir_option))
             self.local_stored_path = os.path.abspath(store_dir_option)
-        self.scope_option = Util.get_option(options, 'scope')
+        scope_option = Util.get_option(options, 'scope')
+        if scope_option:
+            self.scope = scope_option
         return True
 
     def handle(self):
@@ -114,9 +116,25 @@ class GatherPerfHandler(BaseShellHandler):
             st = time.time()
             resp = self.__handle_from_node(node, pack_dir_this_command)
             file_size = ""
-            if len(resp["error"]) == 0:
-                file_size = os.path.getsize(resp["gather_pack_path"])
-            gather_tuples.append((node.get("ip"), False, resp["error"], file_size, int(time.time() - st), resp["gather_pack_path"]))
+            # Determine if this is an error: skip or not successful
+            is_err = resp.get("skip", False) or not resp.get("success", False)
+
+            # Build error message: include warnings if present
+            error_msg = resp.get("error", "")
+            if resp.get("warnings") and error_msg:
+                # If both warnings and errors exist, combine them
+                error_msg = error_msg + "; Warnings: " + "; ".join(resp["warnings"])
+            elif resp.get("warnings") and not error_msg:
+                # If only warnings exist (partial success), show them as warnings in status
+                error_msg = "Partial success: " + "; ".join(resp["warnings"])
+
+            if resp.get("success") and resp.get("gather_pack_path") and os.path.exists(resp["gather_pack_path"]):
+                try:
+                    file_size = os.path.getsize(resp["gather_pack_path"])
+                except Exception as e:
+                    self.stdio.warn("Failed to get file size for {0}: {1}".format(resp.get("gather_pack_path", ""), e))
+                    file_size = ""
+            gather_tuples.append((node.get("ip"), is_err, error_msg, file_size, int(time.time() - st), resp.get("gather_pack_path", "")))
 
         exec_tag = False
         if self.is_ssh:
@@ -144,7 +162,18 @@ class GatherPerfHandler(BaseShellHandler):
         return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
 
     def __handle_from_node(self, node, local_stored_path):
-        resp = {"skip": False, "error": "", "gather_pack_path": ""}
+        """
+        Handle perf data gathering from a single node.
+
+        Returns:
+            dict: Response dictionary with keys:
+                - success: bool, True if data collection succeeded (even with warnings)
+                - skip: bool, True if node was skipped
+                - error: str, Error message if failed, empty string if succeeded
+                - warnings: list, List of warning messages (partial failures)
+                - gather_pack_path: str, Path to the collected data package
+        """
+        resp = {"success": False, "skip": False, "error": "", "warnings": [], "gather_pack_path": ""}
         remote_ip = node.get("ip") if self.is_ssh else NetUtils.get_inner_ip(self.stdio)
         remote_user = node.get("ssh_username")
         self.stdio.verbose("Sending Collect Shell Command to node {0} ...".format(remote_ip))
@@ -152,48 +181,129 @@ class GatherPerfHandler(BaseShellHandler):
         now_time = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         remote_dir_name = "perf_{0}_{1}".format(node.get("ip").replace(":", "_"), now_time)
         remote_dir_full_path = "/tmp/{0}".format(remote_dir_name)
-        ssh_failed = False
         ssh_client = None
+
         try:
             ssh_client = SshClient(self.context, node)
         except Exception as e:
             self.stdio.exception("ssh {0}@{1}: failed, Please check the node conf.".format(remote_user, remote_ip))
-            ssh_failed = True
             resp["skip"] = True
-            resp["error"] = "Please check the node conf."
+            resp["success"] = False
+            resp["error"] = "SSH connection failed: {0}".format(str(e))
             return resp
-        if not ssh_failed:
+
+        try:
             mkdir(ssh_client, remote_dir_full_path, self.stdio)
             pid_observer_list = get_observer_pid(ssh_client, node.get("home_path"), self.stdio)
             if len(pid_observer_list) == 0:
+                resp["success"] = False
                 resp["error"] = "can't find observer"
+                # Clean up remote directory
+                try:
+                    ssh_client.exec_cmd("rm -rf {0}".format(remote_dir_full_path))
+                except Exception:
+                    pass
                 return resp
+
+            gather_errors = []
             for pid_observer in pid_observer_list:
                 if self.__perf_checker(ssh_client):
                     if self.scope == "sample":
-                        self.__gather_perf_sample(ssh_client, remote_dir_full_path, pid_observer)
+                        if not self.__gather_perf_sample(ssh_client, remote_dir_full_path, pid_observer):
+                            gather_errors.append("Failed to gather perf sample for PID {0}".format(pid_observer))
                     elif self.scope == "flame":
-                        self.__gather_perf_flame(ssh_client, remote_dir_full_path, pid_observer)
+                        if not self.__gather_perf_flame(ssh_client, remote_dir_full_path, pid_observer):
+                            gather_errors.append("Failed to gather perf flame for PID {0}".format(pid_observer))
                     else:
-                        self.__gather_perf_sample(ssh_client, remote_dir_full_path, pid_observer)
-                        self.__gather_perf_flame(ssh_client, remote_dir_full_path, pid_observer)
+                        if not self.__gather_perf_sample(ssh_client, remote_dir_full_path, pid_observer):
+                            gather_errors.append("Failed to gather perf sample for PID {0}".format(pid_observer))
+                        if not self.__gather_perf_flame(ssh_client, remote_dir_full_path, pid_observer):
+                            gather_errors.append("Failed to gather perf flame for PID {0}".format(pid_observer))
+                # Always try to gather top info
                 self.__gather_top(ssh_client, remote_dir_full_path, pid_observer)
 
+            # Package files even if some perf gathering failed
             tar_cmd = "cd /tmp && tar -czf {0}.tar.gz {0}/*".format(remote_dir_name)
             tar_cmd_request = ssh_client.exec_cmd(tar_cmd)
             self.stdio.verbose("tar request is {0}".format(tar_cmd_request))
-            remote_tar_file_path = "{0}.tar.gz".format(remote_dir_full_path)
-            file_size = get_file_size(ssh_client, remote_tar_file_path, self.stdio)
-            remote_tar_full_path = os.path.join("/tmp", remote_tar_file_path)
-            if int(file_size) < self.file_size_limit:
+
+            # Fix path calculation: remote_tar_file_path should be just the filename
+            remote_tar_file_path = "{0}.tar.gz".format(remote_dir_name)
+            remote_tar_full_path = "/tmp/{0}".format(remote_tar_file_path)
+
+            try:
+                file_size_str = get_file_size(ssh_client, remote_tar_full_path, self.stdio)
+                # get_file_size returns a string, need to strip whitespace and check if it's a valid number
+                if file_size_str:
+                    file_size_str = file_size_str.strip()
+                    # Check if the string contains only digits (may have newlines)
+                    if file_size_str.replace('\n', '').replace('\r', '').isdigit():
+                        file_size = int(file_size_str)
+                    else:
+                        self.stdio.warn("Invalid file size format: '{0}', file may not exist".format(file_size_str))
+                        file_size = 0
+                else:
+                    file_size = 0
+            except (ValueError, TypeError, Exception) as e:
+                self.stdio.warn("Failed to get file size for {0}: {1}".format(remote_tar_full_path, e))
+                file_size = 0
+
+            if file_size > 0 and file_size < self.file_size_limit:
                 local_file_path = "{0}/{1}.tar.gz".format(local_stored_path, remote_dir_name)
-                download_file(ssh_client, remote_tar_full_path, local_file_path, self.stdio)
-                self.__generate_flame_graph_svg(local_file_path, remote_dir_name, local_stored_path)
-                resp["error"] = ""
+                try:
+                    download_file(ssh_client, remote_tar_full_path, local_file_path, self.stdio)
+                    self.__generate_flame_graph_svg(local_file_path, remote_dir_name, local_stored_path)
+                    resp["gather_pack_path"] = local_file_path
+                    resp["success"] = True
+                    # Store partial failures as warnings, not errors
+                    if gather_errors:
+                        resp["warnings"] = gather_errors
+                        resp["error"] = ""  # Success with warnings
+                    else:
+                        resp["error"] = ""
+                except Exception as e:
+                    resp["success"] = False
+                    resp["error"] = "Failed to download file: {0}".format(str(e))
+                    if gather_errors:
+                        resp["warnings"] = gather_errors
+                        resp["error"] += "; " + "; ".join(gather_errors)
+            elif file_size >= self.file_size_limit:
+                resp["success"] = False
+                resp["error"] = "File too large ({0} bytes, limit: {1} bytes)".format(file_size, self.file_size_limit)
+                if gather_errors:
+                    resp["warnings"] = gather_errors
+                    resp["error"] += "; " + "; ".join(gather_errors)
             else:
-                resp["error"] = "File too large"
-            delete_file_force(ssh_client, remote_tar_full_path, self.stdio)
-            resp["gather_pack_path"] = "{0}/{1}.tar.gz".format(local_stored_path, remote_dir_name)
+                resp["success"] = False
+                resp["error"] = "Failed to create tar file or file size is 0"
+                if gather_errors:
+                    resp["warnings"] = gather_errors
+                    resp["error"] += "; " + "; ".join(gather_errors)
+
+            # Clean up remote tar file
+            try:
+                delete_file_force(ssh_client, remote_tar_full_path, self.stdio)
+            except Exception as e:
+                self.stdio.warn("Failed to delete remote tar file {0}: {1}".format(remote_tar_full_path, e))
+
+            # Clean up remote directory
+            try:
+                ssh_client.exec_cmd("rm -rf {0}".format(remote_dir_full_path))
+            except Exception as e:
+                self.stdio.warn("Failed to clean up remote directory {0}: {1}".format(remote_dir_full_path, e))
+
+        except Exception as e:
+            self.stdio.exception("Unexpected error in __handle_from_node: {0}".format(e))
+            resp["success"] = False
+            resp["error"] = "Unexpected error: {0}".format(str(e))
+        finally:
+            # Close SSH connection
+            if ssh_client:
+                try:
+                    ssh_client.ssh_close()
+                except Exception as e:
+                    self.stdio.verbose("Failed to close SSH connection: {0}".format(e))
+
         return resp
 
     def __get_flamegraph_scripts(self):
@@ -268,20 +378,57 @@ class GatherPerfHandler(BaseShellHandler):
             shutil.rmtree(extract_dir, ignore_errors=True)
 
     def __gather_perf_sample(self, ssh_client, gather_path, pid_observer):
+        """
+        Gather perf sample data.
+
+        Args:
+            ssh_client: SSH client instance
+            gather_path: Remote directory path for gathering data
+            pid_observer: Observer process PID
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        started_loading = False
         try:
             self.stdio.start_loading('gather perf sample')
+            started_loading = True
             cmd = "cd {gather_path} && perf record -o sample.data -e cycles -c {count_option} -p {pid} -g -- sleep 20".format(gather_path=gather_path, count_option=self.count_option, pid=pid_observer)
             self.stdio.verbose("gather perf sample, run cmd = [{0}]".format(cmd))
             ssh_client.exec_cmd(cmd)
+
             generate_data = "cd {gather_path} && perf script -i sample.data -F ip,sym -f > sample.viz".format(gather_path=gather_path)
             self.stdio.verbose("generate perf sample data, run cmd = [{0}]".format(generate_data))
             ssh_client.exec_cmd(generate_data)
+
             self.is_ready(ssh_client, os.path.join(gather_path, 'sample.viz'))
             self.stdio.stop_loading('gather perf sample')
-        except:
-            self.stdio.error("generate perf sample data on server [{0}] failed".format(ssh_client.get_name()))
+            return True
+        except KeyboardInterrupt:
+            self.stdio.warn("Gather perf sample interrupted by user")
+            raise
+        except SystemExit:
+            raise
+        except Exception as e:
+            self.stdio.error("generate perf sample data on server [{0}] failed: {1}".format(ssh_client.get_name(), str(e)))
+            return False
+        finally:
+            if started_loading:
+                try:
+                    self.stdio.stop_loading('gather perf sample')
+                except Exception:
+                    pass
 
     def __perf_checker(self, ssh_client):
+        """
+        Check if perf command is available on the remote server.
+
+        Args:
+            ssh_client: SSH client instance
+
+        Returns:
+            bool: True if perf is installed, False otherwise
+        """
         cmd = "command -v perf"
         result = ssh_client.exec_cmd(cmd)
 
@@ -293,8 +440,21 @@ class GatherPerfHandler(BaseShellHandler):
             return False
 
     def __gather_perf_flame(self, ssh_client, gather_path, pid_observer):
+        """
+        Gather perf flame data.
+
+        Args:
+            ssh_client: SSH client instance
+            gather_path: Remote directory path for gathering data
+            pid_observer: Observer process PID
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        started_loading = False
         try:
             self.stdio.start_loading('gather perf flame')
+            started_loading = True
             perf_cmd = "cd {gather_path} && perf record -o flame.data -F 99 -p {pid} -g -- sleep 20".format(gather_path=gather_path, pid=pid_observer)
             self.stdio.verbose("gather perf, run cmd = [{0}]".format(perf_cmd))
             ssh_client.exec_cmd(perf_cmd)
@@ -302,43 +462,101 @@ class GatherPerfHandler(BaseShellHandler):
             generate_data = "cd {gather_path} && perf script -i flame.data > flame.viz".format(gather_path=gather_path)
             self.stdio.verbose("generate perf data, run cmd = [{0}]".format(generate_data))
             ssh_client.exec_cmd(generate_data)
+
             self.is_ready(ssh_client, os.path.join(gather_path, 'flame.viz'))
             self.stdio.stop_loading('gather perf flame')
-        except:
-            self.stdio.error("generate perf data on server [{0}] failed".format(ssh_client.get_name()))
+            return True
+        except KeyboardInterrupt:
+            self.stdio.warn("Gather perf flame interrupted by user")
+            raise
+        except SystemExit:
+            raise
+        except Exception as e:
+            self.stdio.error("generate perf data on server [{0}] failed: {1}".format(ssh_client.get_name(), str(e)))
+            return False
+        finally:
+            if started_loading:
+                try:
+                    self.stdio.stop_loading('gather perf flame')
+                except Exception:
+                    pass
 
     def __gather_top(self, ssh_client, gather_path, pid_observer):
+        """
+        Gather top information for observer process.
+
+        Args:
+            ssh_client: SSH client instance
+            gather_path: Remote directory path for gathering data
+            pid_observer: Observer process PID
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
             cmd = "cd {gather_path} && top -Hp {pid} -b -n 1 > top.txt".format(gather_path=gather_path, pid=pid_observer)
             self.stdio.verbose("gather top, run cmd = [{0}]".format(cmd))
             ssh_client.exec_cmd(cmd)
-        except:
-            self.stdio.error("gather top on server failed [{0}]".format(ssh_client.get_name()))
+            return True
+        except KeyboardInterrupt:
+            self.stdio.warn("Gather top interrupted by user")
+            raise
+        except SystemExit:
+            raise
+        except Exception as e:
+            self.stdio.error("gather top on server [{0}] failed: {1}".format(ssh_client.get_name(), str(e)))
+            return False
 
     @Util.retry(3, 5)
     def is_ready(self, ssh_client, remote_path):
+        """
+        Check if the file is ready (not empty).
+
+        Args:
+            ssh_client: SSH client instance
+            remote_path: Remote file path to check
+
+        Raises:
+            Exception: If file is empty or doesn't exist
+        """
         try:
             self.stdio.verbose("check whether the file {remote_path} is empty".format(remote_path=remote_path))
             is_empty_file_res = is_empty_file(ssh_client, remote_path, self.stdio)
             if is_empty_file_res:
-                self.stdio.warn("The server {host_ip} directory {remote_path} is empty, waiting for the collection to complete".format(host_ip=ssh_client.get_name(), remote_path=remote_path))
-                raise
+                error_msg = "The server {host_ip} file {remote_path} is empty, waiting for the collection to complete".format(host_ip=ssh_client.get_name(), remote_path=remote_path)
+                self.stdio.warn(error_msg)
+                raise Exception(error_msg)
         except Exception as e:
+            # Re-raise the exception to trigger retry mechanism
             raise e
 
     @staticmethod
     def __get_overall_summary(node_summary_tuple):
+        """
+        Generate summary table from gather tuples.
+
+        Args:
+            node_summary_tuple: List of tuples (node_ip, is_err, error_msg, file_size, consume_time, pack_path)
+
+        Returns:
+            str: Formatted summary table string
+        """
         summary_tab = []
         field_names = ["Node", "Status", "Size", "Time", "PackPath"]
         for tup in node_summary_tuple:
             node = tup[0]
             is_err = tup[1]
+            error_msg = tup[2]
             file_size = tup[3]
             consume_time = tup[4]
             pack_path = tup[5]
             try:
+                if isinstance(file_size, str):
+                    file_size = int(file_size) if file_size.isdigit() else 0
                 format_file_size = FileUtil.size_format(num=file_size, output_str=True)
-            except:
+            except (ValueError, TypeError, Exception):
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
-            summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
+
+            status = "Error: " + error_msg if is_err else "Completed"
+            summary_tab.append((node, status, format_file_size, "{0} s".format(int(consume_time)), pack_path))
         return "\nGather Perf Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)

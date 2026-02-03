@@ -4,9 +4,11 @@ on:
   pull_request:
     branches:
       - master
+      - 420-perf-update
   push:
     branches:
       - master
+      - 420-perf-update
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
