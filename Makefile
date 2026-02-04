@@ -144,7 +144,8 @@ remove_folders:
 # Initialize development environment
 init: check_python backup_obdiag remove_folders copy_files install_requirements download_obstack
 	@echo "Setting up environment..."
-	@source $(WORK_DIR)/rpm/init_obdiag_cmd.sh 2>/dev/null || true
+	# DEPRECATED: Old static completion script - now using built-in obdiag complete command
+	# @source $(WORK_DIR)/rpm/init_obdiag_cmd.sh 2>/dev/null || true
 	@echo ""
 	@echo "=============================================="
 	@echo "Initialization completed successfully!"

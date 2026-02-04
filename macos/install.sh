@@ -171,6 +171,51 @@ COMPLETION_EOF
 }
 
 setup_bash_completion() {
+    # Use built-in completion command - define function inline
+    if command -v obdiag >/dev/null 2>&1; then
+        # Try system directory first
+        local completion_dir="/usr/local/etc/bash_completion.d"
+        if [ -d "$completion_dir" ] && ([ -w "$completion_dir" ] || [ "$SUDO_USER" ]); then
+            mkdir -p "$completion_dir"
+            cat > "$completion_dir/obdiag" << 'COMPLETION_EOF'
+#!/usr/bin/env bash
+# obdiag completion using built-in complete command
+_obdiag_completion() {
+    local cur_word="${COMP_WORDS[COMP_CWORD]}"
+    export COMP_LINE="${COMP_LINE}"
+    export COMP_POINT="${COMP_POINT}"
+    export COMP_CWORD="${COMP_CWORD}"
+    local completions=$(obdiag complete 2>/dev/null)
+    COMPREPLY=($(compgen -W "$completions" -- "$cur_word"))
+}
+complete -F _obdiag_completion obdiag
+COMPLETION_EOF
+            chmod 644 "$completion_dir/obdiag" 2>/dev/null && \
+            echo -e "${GREEN}Bash completion installed (using built-in completion)${NC}" && \
+            return
+        fi
+        
+        # Fallback to user bashrc
+        if [ -f ~/.bashrc ] && ! grep -q "_obdiag_completion" ~/.bashrc; then
+            cat >> ~/.bashrc << 'COMPLETION_EOF'
+
+# obdiag completion using built-in complete command
+_obdiag_completion() {
+    local cur_word="${COMP_WORDS[COMP_CWORD]}"
+    export COMP_LINE="${COMP_LINE}"
+    export COMP_POINT="${COMP_POINT}"
+    export COMP_CWORD="${COMP_CWORD}"
+    local completions=$(obdiag complete 2>/dev/null)
+    COMPREPLY=($(compgen -W "$completions" -- "$cur_word"))
+}
+complete -F _obdiag_completion obdiag
+COMPLETION_EOF
+            echo -e "${GREEN}Bash completion added to ~/.bashrc${NC}"
+            return
+        fi
+    fi
+    
+    # Fallback to static completion if built-in not available
     local completion_dir="/usr/local/etc/bash_completion.d"
     if [ -w "$completion_dir" ] || [ "$SUDO_USER" ]; then
         mkdir -p "$completion_dir"

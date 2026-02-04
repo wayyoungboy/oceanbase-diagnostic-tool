@@ -1448,5 +1448,104 @@ class MainCommand(MajorCommand):
         self.register_command(ObdiagConfigCommand())
         self.register_command(ObdiagUpdateCommand())
         self.register_command(ToolCommand())
+        # Register completion command (hidden, for shell completion)
+        # Note: ObdiagCompleteCommand is defined after MainCommand, but we can reference it here
+        # because Python allows forward references to classes defined later in the same module
+        self.register_command(ObdiagCompleteCommand())
         self.parser.version = get_obdiag_version()
         self.parser._add_version_option()
+
+
+class ObdiagCompleteCommand(BaseCommand):
+    """Generate shell completion for obdiag - hidden command for shell completion"""
+    
+    def __init__(self):
+        super(ObdiagCompleteCommand, self).__init__('complete', 'Generate shell completion')
+        self.hidden = True  # Hide from help output
+    
+    def do_command(self):
+        """Handle completion request from shell"""
+        try:
+            # Get completion context from environment variables
+            comp_line = os.environ.get('COMP_LINE', '')
+            comp_point = int(os.environ.get('COMP_POINT', len(comp_line)))
+            comp_cword = int(os.environ.get('COMP_CWORD', 0))
+            
+            # Parse command line
+            words = comp_line[:comp_point].split() if comp_line else []
+            if len(words) < comp_cword:
+                return True
+            
+            cur_word = words[comp_cword] if comp_cword < len(words) else ''
+            
+            # Get completion suggestions
+            completions = self._get_completions(words, comp_cword, cur_word)
+            
+            # Output completion list (one per line)
+            for comp in completions:
+                if comp.startswith(cur_word):
+                    print(comp)
+        except Exception:
+            # Silently fail on errors to avoid breaking shell completion
+            pass
+        
+        return True
+    
+    def _get_completions(self, words, comp_cword, cur_word):
+        """Get completion suggestions based on context"""
+        completions = []
+        
+        try:
+            # Create MainCommand instance to access command registry
+            # Note: This is safe because completion is called in a separate process
+            # and MainCommand initialization doesn't depend on ObdiagCompleteCommand
+            main_cmd = MainCommand()
+            
+            # First level: main commands
+            if comp_cword == 1:
+                for cmd_name, cmd_obj in main_cmd.commands.items():
+                    if not getattr(cmd_obj, 'hidden', False):
+                        completions.append(cmd_name)
+                completions.extend(['--version', '--help'])
+            
+            # Second level: subcommands
+            elif comp_cword == 2 and len(words) > 1:
+                cmd_name = words[1]
+                if cmd_name in main_cmd.commands:
+                    cmd_obj = main_cmd.commands[cmd_name]
+                    if hasattr(cmd_obj, 'commands'):
+                        for subcmd_name, subcmd_obj in cmd_obj.commands.items():
+                            if not getattr(subcmd_obj, 'hidden', False):
+                                completions.append(subcmd_name)
+            
+            # Third level and beyond: special handling
+            elif comp_cword >= 3 and len(words) >= 2:
+                cmd_name = words[1]
+                subcmd_name = words[2] if len(words) > 2 else ''
+                prev_word = words[comp_cword - 1] if comp_cword > 0 else ''
+                
+                # Special command handling
+                if cmd_name in ['gather', 'display'] and subcmd_name == 'scene':
+                    completions = ['list', 'run']
+                elif cmd_name == 'analyze' and subcmd_name == 'parameter':
+                    completions = ['diff', 'default']
+                elif cmd_name == 'analyze' and subcmd_name == 'variable':
+                    completions = ['diff']
+                else:
+                    # Option completion
+                    completions = self._get_option_completions(prev_word)
+        except Exception:
+            # Return empty list on error
+            pass
+        
+        return completions
+    
+    def _get_option_completions(self, prev_word):
+        """Get option completion suggestions"""
+        if prev_word == '--since':
+            return ['5m', '10m', '30m', '1h', '2h', '6h', '12h', '1d', '3d', '7d']
+        elif prev_word == '--scope':
+            return ['observer', 'election', 'rootservice', 'all']
+        else:
+            return ['--from', '--to', '--since', '--scope', '--grep', 
+                   '--store_dir', '-c', '--config', '--help']

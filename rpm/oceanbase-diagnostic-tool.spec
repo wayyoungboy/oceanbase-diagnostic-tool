@@ -44,7 +44,8 @@ cd $SRC_DIR
 \cp -rf $SRC_DIR/dependencies/bin $BUILD_DIR/SOURCES/dependencies
 \cp -rf $SRC_DIR/plugins $BUILD_DIR/SOURCES/
 \cp -rf $SRC_DIR/rpm/init.sh $BUILD_DIR/SOURCES/init.sh
-\cp -rf $SRC_DIR/rpm/init_obdiag_cmd.sh $BUILD_DIR/SOURCES/init_obdiag_cmd.sh
+# DEPRECATED: Old static completion script - now using built-in obdiag complete command
+# \cp -rf $SRC_DIR/rpm/init_obdiag_cmd.sh $BUILD_DIR/SOURCES/init_obdiag_cmd.sh
 \cp -rf $SRC_DIR/rpm/obdiag_backup.sh $BUILD_DIR/SOURCES/obdiag_backup.sh
 \cp -rf $SRC_DIR/conf $BUILD_DIR/SOURCES/
 mkdir -p ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/lib/
@@ -57,7 +58,8 @@ find $SRC_DIR -name "obdiag"
 \cp -rf $BUILD_DIR/SOURCES/example ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
 \cp -rf $BUILD_DIR/SOURCES/conf ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/conf
 \cp -rf $BUILD_DIR/SOURCES/init.sh ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
-\cp -rf $BUILD_DIR/SOURCES/init_obdiag_cmd.sh ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
+# DEPRECATED: Old static completion script - now using built-in obdiag complete command
+# \cp -rf $BUILD_DIR/SOURCES/init_obdiag_cmd.sh ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
 \cp -rf $BUILD_DIR/SOURCES/obdiag_backup.sh ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
 \cp -rf $BUILD_DIR/SOURCES/plugins ${RPM_BUILD_ROOT}/opt/oceanbase-diagnostic-tool/
 
@@ -72,7 +74,8 @@ find /opt/oceanbase-diagnostic-tool/obdiag -type f -exec chmod 644 {} \;
 ln -sf /opt/oceanbase-diagnostic-tool/obdiag /usr/bin/obdiag
 chmod +x /opt/oceanbase-diagnostic-tool/obdiag
 
-cp -rf /opt/oceanbase-diagnostic-tool/init_obdiag_cmd.sh /etc/profile.d/obdiag.sh
+# DEPRECATED: Old static completion script - now using built-in obdiag complete command
+# cp -rf /opt/oceanbase-diagnostic-tool/init_obdiag_cmd.sh /etc/profile.d/obdiag.sh
 /opt/oceanbase-diagnostic-tool/obdiag_backup.sh
 /opt/oceanbase-diagnostic-tool/init.sh
 echo -e 'Please execute the following command to init obdiag:\n'
