@@ -13,7 +13,7 @@
 """
 @time: 2023/12/22
 @file: rca_handler.py
-@desc:
+@desc: RCA handler (Migrated to BaseHandler)
 """
 import datetime
 import json
@@ -21,6 +21,7 @@ import os
 import xmltodict
 import yaml
 from textwrap import fill
+from src.common.base_handler import BaseHandler
 from src.common.command import (
     get_obproxy_version,
     get_observer_version,
@@ -41,38 +42,50 @@ from src.common.version import OBDIAG_VERSION
 from src.common.scene import get_version_by_type
 
 
-class RCAHandler:
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
+class RCAHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.ob_cluster = self.context.cluster_config
-        self.options = self.context.options
         observer_nodes = self.context.cluster_config.get("servers")
+
         # build observer_nodes ,add ssher
         context_observer_nodes = []
         if observer_nodes is not None:
-            for node in observer_nodes:
-                ssh = SshClient(context, node)
-                node["ssher"] = ssh
-                context_observer_nodes.append(node)
+            # Use SSH connection manager if available
+            if self.ssh_manager:
+                context_observer_nodes = self.ssh_manager.setup_nodes_with_connections(self.context, observer_nodes, "observer")
+            else:
+                # Fallback: create SSH connections directly
+                for node in observer_nodes:
+                    ssh = SshClient(self.context, node)
+                    node["ssher"] = ssh
+                    context_observer_nodes.append(node)
             self.context.set_variable("observer_nodes", context_observer_nodes)
+
         obproxy_nodes = self.context.obproxy_config.get("servers")
         # build obproxy_nodes
         context_obproxy_nodes = []
         if obproxy_nodes is not None:
-            for node in obproxy_nodes:
-                ssh = SshClient(context, node)
-                node["ssher"] = ssh
-                context_obproxy_nodes.append(node)
+            if self.ssh_manager:
+                context_obproxy_nodes = self.ssh_manager.setup_nodes_with_connections(self.context, obproxy_nodes, "obproxy")
+            else:
+                for node in obproxy_nodes:
+                    ssh = SshClient(self.context, node)
+                    node["ssher"] = ssh
+                    context_obproxy_nodes.append(node)
             self.context.set_variable("obproxy_nodes", context_obproxy_nodes)
+
         # build oms_nodes
         oms_nodes = self.context.oms_config.get("servers")
         context_oms_nodes = []
         if oms_nodes is not None:
-            for node in oms_nodes:
-                ssh = SshClient(context, node)
-                node["ssher"] = ssh
-                context_oms_nodes.append(node)
+            if self.ssh_manager:
+                context_oms_nodes = self.ssh_manager.setup_nodes_with_connections(self.context, oms_nodes, "oms")
+            else:
+                for node in oms_nodes:
+                    ssh = SshClient(self.context, node)
+                    node["ssher"] = ssh
+                    context_oms_nodes.append(node)
             self.context.set_variable("oms_nodes", context_oms_nodes)
 
         # build ob_connector
@@ -88,44 +101,51 @@ class RCAHandler:
                 )
                 self.context.set_variable("ob_connector", ob_connector)
         except Exception as e:
-            self.stdio.warn("RCAHandler init ob_connector failed: {0}. If the scene need it, please check the conf".format(str(e)))
+            self._log_warn(f"RCAHandler init ob_connector failed: {str(e)}. If the scene need it, please check the conf")
+
         # build report
-        store_dir = Util.get_option(self.options, "store_dir")
+        store_dir = self._get_option("store_dir")
         if store_dir is None:
             store_dir = "./obdiag_rca/"
-        self.stdio.verbose("RCAHandler.init store dir: {0}".format(store_dir))
+        self._log_verbose(f"RCAHandler.init store dir: {store_dir}")
         report = Result(self.context)
         report.set_save_path(store_dir)
         self.context.set_variable("report", report)
+
         # build observer_version by sql or ssher. If using SSHer, the observer_version is set to node[0].
         observer_version = ""
         try:
             observer_version = get_observer_version(self.context)
         except Exception as e:
-            self.stdio.warn("RCAHandler Failed to get observer version:{0}".format(e))
-        self.stdio.verbose("RCAHandler.init get observer version: {0}".format(observer_version))
+            self._log_warn(f"RCAHandler Failed to get observer version:{e}")
+        self._log_verbose(f"RCAHandler.init get observer version: {observer_version}")
         if observer_version != "":
-            self.stdio.verbose("RCAHandler.init get observer version: {0}".format(observer_version))
+            self._log_verbose(f"RCAHandler.init get observer version: {observer_version}")
             self.context.set_variable("observer_version", observer_version)
         else:
-            self.stdio.warn("RCAHandler.init Failed to get observer version.")
+            self._log_warn("RCAHandler.init Failed to get observer version.")
+
         # build obproxy_version. just by ssh
         if self.context.get_variable("obproxy_version", default="") == "":
             if len(obproxy_nodes) > 0:
                 obproxy_version = ""
                 try:
                     if len(context_obproxy_nodes) > 0:
-                        obproxy_version = get_obproxy_version(context)
+                        obproxy_version = get_obproxy_version(self.context)
                 except Exception as e:
-                    self.stdio.warn("RCAHandler.init Failed to get obproxy version. Error:{0}".format(e))
+                    self._log_warn(f"RCAHandler.init Failed to get obproxy version. Error:{e}")
                 if obproxy_version != "":
-                    self.stdio.verbose("RCAHandler.init get obproxy version: {0}".format(obproxy_version))
+                    self._log_verbose(f"RCAHandler.init get obproxy version: {obproxy_version}")
                 else:
-                    self.stdio.warn("RCAHandler.init Failed to get obproxy version.")
+                    self._log_warn("RCAHandler.init Failed to get obproxy version.")
                 self.context.set_variable("obproxy_version", obproxy_version)
+
         self.context.set_variable("ob_cluster", self.ob_cluster)
+
         # set rca_deep_limit
-        rca_list = RcaScenesListHandler(self.context)
+        # Use new BaseHandler initialization pattern
+        rca_list = RcaScenesListHandler()
+        rca_list.init(self.context)
         all_scenes_info, all_scenes_item = rca_list.get_all_scenes()
         self.context.set_variable("rca_deep_limit", len(all_scenes_info))
         self.all_scenes = all_scenes_item
@@ -134,87 +154,80 @@ class RCAHandler:
         self.nodes = self.context.get_variable("observer_nodes")
         self.obproxy_nodes = self.context.get_variable("obproxy_nodes")
         self.store_dir = store_dir
+
         # init input parameters
         self.report = None
         self.tasks = None
-        self.context.set_variable("input_parameters", Util.get_option(self.options, "env"))
-        self.context.set_variable("env", Util.get_option(self.options, "env"))
-        self.store_dir = Util.get_option(self.options, "store_dir", "./obdiag_rca/")
+        self.context.set_variable("input_parameters", self._get_option("env"))
+        self.context.set_variable("env", self._get_option("env"))
+        self.store_dir = self._get_option("store_dir", "./obdiag_rca/")
         self.context.set_variable("store_dir", self.store_dir)
-        self.stdio.verbose(
-            "RCAHandler init.cluster:{0}, init.nodes:{1}, init.obproxy_nodes:{2}, init.store_dir:{3}".format(
-                self.cluster.get("ob_cluster_name") or self.cluster.get("obproxy_cluster_name"),
-                StringUtils.node_cut_passwd_for_log(self.nodes),
-                StringUtils.node_cut_passwd_for_log(self.obproxy_nodes),
-                self.store_dir,
-            )
+
+        self._log_verbose(
+            f"RCAHandler init.cluster:{self.cluster.get('ob_cluster_name') or self.cluster.get('obproxy_cluster_name')}, "
+            f"init.nodes:{StringUtils.node_cut_passwd_for_log(self.nodes)}, "
+            f"init.obproxy_nodes:{StringUtils.node_cut_passwd_for_log(self.obproxy_nodes)}, "
+            f"init.store_dir:{self.store_dir}"
         )
 
     def get_result_path(self):
         return self.store_dir
 
-    def handle(self):
-        scene_name = Util.get_option(self.options, "scene", None)
-        if scene_name:
-            scene_name = scene_name.strip()
-            if scene_name in self.all_scenes:
-                self.rca_scene = self.all_scenes[scene_name]
-            if self.rca_scene is None:
-                raise Exception("rca_scene :{0} is not exist".format(scene_name))
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-            self.store_dir = os.path.expanduser(os.path.join(self.store_dir, "obdiag_{0}_{1}".format(scene_name, datetime.datetime.now().strftime("%Y%m%d%H%M%S"))))
-            if not os.path.exists(self.store_dir):
-                os.makedirs(self.store_dir)
-            self.context.set_variable("store_dir", self.store_dir)
-            self.stdio.verbose("{1} store_dir:{0}".format(self.store_dir, scene_name))
-            # build gather_log
-            self.context.set_variable("gather_log", Gather_log(self.context))
-            try:
-                if self.rca_scene.init(self.context) is False:
-                    return
-            except Exception as e:
-                raise Exception("rca_scene.init err: {0}".format(e))
-            self.stdio.verbose("{0} init success".format(scene_name))
-            return self.__execute()
-        else:
-            self.stdio.error("rca_scene :{0} is not exist or not input".format(scene_name))
-            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="rca_scene :{0} is not exist or not input".format(scene_name))
+        try:
+            scene_name = self._get_option("scene")
+            if scene_name:
+                scene_name = scene_name.strip()
+                if scene_name in self.all_scenes:
+                    self.rca_scene = self.all_scenes[scene_name]
+                if self.rca_scene is None:
+                    raise ValueError(f"rca_scene :{scene_name} is not exist")
+
+                self.store_dir = os.path.expanduser(os.path.join(self.store_dir, f"obdiag_{scene_name}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"))
+                if not os.path.exists(self.store_dir):
+                    os.makedirs(self.store_dir)
+                self.context.set_variable("store_dir", self.store_dir)
+                self._log_verbose(f"{scene_name} store_dir:{self.store_dir}")
+                # build gather_log
+                self.context.set_variable("gather_log", Gather_log(self.context))
+                try:
+                    if self.rca_scene.init(self.context) is False:
+                        return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.init failed")
+                except Exception as e:
+                    raise Exception(f"rca_scene.init err: {e}")
+                self._log_verbose(f"{scene_name} init success")
+                return self.__execute()
+            else:
+                self._log_error(f"rca_scene :{scene_name} is not exist or not input")
+                return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data=f"rca_scene :{scene_name} is not exist or not input")
+
+        except Exception as e:
+            return self._handle_error(e)
 
     # get all tasks
     def __execute(self):
         try:
             self.rca_scene.execute()
         except RCANotNeedExecuteException as e:
-            self.stdio.warn("rca_scene.execute not need execute: {0}".format(e))
+            self._log_warn(f"rca_scene.execute not need execute: {e}")
             return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, data={"result": "rca_scene.execute not need execute"})
         except Exception as e:
-            self.stdio.verbose(traceback.format_exc())
-            self.stdio.error("rca_scene.execute err: {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.execute err: {0}".format(e))
+            self._log_verbose(traceback.format_exc())
+            self._log_error(f"rca_scene.execute err: {e}")
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"rca_scene.execute err: {e}")
         finally:
             try:
                 self.rca_scene.export_result()
-                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.get_result_path(), "record": self.rca_scene.Result.records_data()})
+                result_path = self.get_result_path()
+                self._log_info(f"rca finished. For more details, the result on '{Fore.YELLOW}{result_path}{Style.RESET_ALL}' " f"\nYou can get the suggest by '{Fore.YELLOW}cat {result_path}/record.{self.rca_scene.Result.rca_report_type}{Style.RESET_ALL}'")
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": result_path, "record": self.rca_scene.Result.records_data()})
             except Exception as e:
-                self.stdio.verbose(traceback.format_exc())
-                self.stdio.error("rca_scene.export_result err: {0}".format(e))
-                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="rca_scene.export_result err: {0}".format(e))
-            finally:
-                self.stdio.print(
-                    "rca finished. For more details, the result on '"
-                    + Fore.YELLOW
-                    + self.get_result_path()
-                    + Style.RESET_ALL
-                    + "' \nYou can get the suggest by '"
-                    + Fore.YELLOW
-                    + "cat "
-                    + self.get_result_path()
-                    + "/record"
-                    + "."
-                    + self.rca_scene.Result.rca_report_type
-                    + Style.RESET_ALL
-                    + "'"
-                )
+                self._log_verbose(traceback.format_exc())
+                self._log_error(f"rca_scene.export_result err: {e}")
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"rca_scene.export_result err: {e}")
 
 
 class RcaScene:

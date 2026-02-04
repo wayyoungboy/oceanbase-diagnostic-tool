@@ -13,26 +13,26 @@
 """
 @time: 2024/01/23
 @file: rca_list.py
-@desc:
+@desc: Handler for listing RCA scenes (Migrated to BaseHandler)
 """
 import os.path
+from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import DynamicLoading
 from src.common.tool import Util
 from src.common.result_type import ObdiagResult
 
 
-class RcaScenesListHandler:
-    def __init__(self, context, work_path=const.RCA_WORK_PATH):
-        self.context = context
-        self.stdio = context.stdio
-
+class RcaScenesListHandler(BaseHandler):
+    def _init(self, work_path=None, **kwargs):
+        """Subclass initialization"""
         if not work_path:
             work_path = const.RCA_WORK_PATH
+
         if os.path.exists(os.path.expanduser(work_path)):
             self.work_path = os.path.expanduser(work_path)
         else:
-            self.stdio.warn("input rca work_path not exists: {0}, use default path {1}".format(work_path, const.RCA_WORK_PATH))
+            self._log_warn(f"input rca work_path not exists: {work_path}, use default path {const.RCA_WORK_PATH}")
             self.work_path = const.RCA_WORK_PATH
 
     def get_all_scenes(self):
@@ -42,15 +42,16 @@ class RcaScenesListHandler:
         scene_list = {}
         scene_info_list = {}
         if not scenes_files or len(scenes_files) == 0:
-            self.stdio.error("no rca scene found! Please check RCA_WORK_PATH: {0}".format(self.work_path))
-            return
+            self._log_error(f"no rca scene found! Please check RCA_WORK_PATH: {self.work_path}")
+            return {}, {}
+
         for scene_file in scenes_files:
             lib_path = self.work_path
             module_name = os.path.basename(scene_file)[:-3]
             DynamicLoading.add_lib_path(lib_path)
             module = DynamicLoading.import_module(os.path.basename(scene_file)[:-3], None)
             if not hasattr(module, module_name):
-                self.stdio.error("{0} import_module failed".format(module_name))
+                self._log_error(f"{module_name} import_module failed")
                 continue
             scene_list[module_name] = getattr(module, module_name)
 
@@ -62,15 +63,17 @@ class RcaScenesListHandler:
             scene_info_list[scene_name] = {"name": scene_name, "command": "obdiag rca run --scene={0}".format(scene_name), "info_en": scene_info["info_en"], "info_cn": scene_info["info_cn"]}
         return scene_info_list, scene_list
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
+        """List all RCA scenes"""
+        self._validate_initialized()
+
         try:
-            self.stdio.verbose("list rca scenes")
-            scene_info_list, scene_itme_list = self.get_all_scenes()
+            self._log_verbose("Listing RCA scenes")
+            scene_info_list, scene_item_list = self.get_all_scenes()
             Util.print_scene(scene_info_list, stdio=self.stdio)
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data=scene_info_list)
         except Exception as e:
-            self.stdio.error("RcaScenesListHandler Exception: {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="RcaScenesListHandler Exception:".format(e))
+            return self._handle_error(e)
 
     def __find_rca_files(self):
         files = []

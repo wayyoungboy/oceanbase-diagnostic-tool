@@ -33,7 +33,7 @@ class DeleteServerError(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -60,7 +60,7 @@ class DeleteServerError(RcaScene):
             self.record.add_record("start check enable_rebalance by: show parameters like 'enable_rebalance';")
             sql = "show parameters like 'enable_rebalance';"
             self.verbose("get enable_rebalance execute_sql is {0}".format(sql))
-            enable_rebalance_data = self.__execute_sql_with_save(sql, "enable_rebalance")
+            enable_rebalance_data = self._execute_sql_with_save(sql, "enable_rebalance")
             enable_rebalance_false_nodes = []
             for enable_rebalance_data_item in enable_rebalance_data:
                 value = enable_rebalance_data_item['value'].lower()
@@ -75,7 +75,7 @@ class DeleteServerError(RcaScene):
             sql = "select tenant_id from oceanbase.__all_resource_pool where resource_pool_id in (select resource_pool_id from oceanbase.__all_unit where svr_ip = '{0}' and svr_port = '{1}');".format(self.svr_ip, self.svr_port)
             self.record.add_record("start check tenant by: {0}".format(sql))
             self.verbose("get tenant execute_sql is {0}".format(sql))
-            tenant_datas = self.__execute_sql_with_save(sql, "tenant")
+            tenant_datas = self._execute_sql_with_save(sql, "tenant")
             for tenant_data in tenant_datas:
                 if tenant_data['tenant_id'] == 0:
                     continue
@@ -84,18 +84,18 @@ class DeleteServerError(RcaScene):
                 self.record.add_suggest("You can wait for the unit migration and replica migration to complete.")
                 return
             # check node is only one of the zone
-            ## get the zone of the node
+            # get the zone of the node
             sql = "select ZONE from oceanbase.DBA_OB_SERVERS where svr_ip='{0}' and svr_port={1};".format(self.svr_ip, self.svr_port)
             self.verbose("get zone execute_sql is {0}".format(sql))
-            zone_data = self.__execute_sql_with_save(sql, "node_zone")
+            zone_data = self._execute_sql_with_save(sql, "node_zone")
             if len(zone_data) <= 0:
                 self.record.add_record("node {0} is not in the cluster".format(self.svr_ip))
                 return
             zone = zone_data[0]['ZONE']
-            ## get the zone of all the nodes
+            # get the zone of all the nodes
             sql = "SELECT * FROM oceanbase.DBA_OB_SERVERS where zone='{0}';".format(zone)
             self.verbose("get zone execute_sql is {0}".format(sql))
-            zone_datas = self.__execute_sql_with_save(sql, "zone_nodes")
+            zone_datas = self._execute_sql_with_save(sql, "zone_nodes")
             if len(zone_datas) <= 1:
                 self.record.add_record("node {0} is only one of the zone {1}".format(self.svr_ip, zone))
                 self.record.add_suggest("You can'not delete the node. because the node is only one of the zone")
@@ -127,7 +127,7 @@ class DeleteServerError(RcaScene):
         finally:
             self.stdio.verbose("end DeleteServerError execute")
 
-    def __execute_sql_with_save(self, sql: str, save_file_name: str):
+    def _execute_sql_with_save(self, sql: str, save_file_name: str):
         try:
             cursor = self.ob_connector.execute_sql_return_cursor_dictionary(sql)
             data = cursor.fetchall()
@@ -137,7 +137,7 @@ class DeleteServerError(RcaScene):
                 return []
             columns = [desc[0] for desc in cursor.description]
             data_save_path = os.path.join(self.work_path, "{}.txt".format(save_file_name))
-            with open(data_save_path, 'w') as f:
+            with open(data_save_path, 'w', encoding='utf-8') as f:
                 f.write('\t'.join(columns) + '\n')
                 for row in data:
                     line = ""

@@ -16,6 +16,7 @@
 @desc:
 """
 import os
+from src.common.base_handler import BaseHandler
 from src.common.tool import DirectoryUtil, TimeUtils, Util
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.ob_connector import OBConnector
@@ -27,19 +28,21 @@ from colorama import Fore, Style
 from src.common.result_type import ObdiagResult
 
 
-class AnalyzeVariableHandler(object):
-    def __init__(self, context, analyze_type='diff'):
-        self.context = context
-        self.stdio = self.context.stdio
+class AnalyzeVariableHandler(BaseHandler):
+    def _init(self, analyze_type='diff', **kwargs):
+        """Subclass initialization"""
         self.export_report_path = None
         self.variable_file_name = None
         self.analyze_type = analyze_type
         self.ob_cluster = self.context.cluster_config
+
         if self.context.get_variable("gather_timestamp", None):
             self.analyze_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.analyze_timestamp = TimeUtils.get_current_us_timestamp()
+
         self.observer_nodes = self.context.cluster_config.get("servers")
+
         try:
             self.obconn = OBConnector(
                 context=self.context,
@@ -51,16 +54,22 @@ class AnalyzeVariableHandler(object):
                 database="oceanbase",
             )
         except Exception as e:
-            self.stdio.error("Failed to connect to database: {0}".format(e))
-            raise OBDIAGFormatException("Failed to connect to database: {0}".format(e))
+            self._log_error(f"Failed to connect to database: {e}")
+            raise OBDIAGFormatException(f"Failed to connect to database: {e}")
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        self.stdio.verbose("Use {0} as pack dir.".format(self.export_report_path))
-        DirectoryUtil.mkdir(path=self.export_report_path, stdio=self.stdio)
-        return self.execute()
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            if not self.init_option():
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
+            self._log_verbose(f"Use {self.export_report_path} as pack dir.")
+            DirectoryUtil.mkdir(path=self.export_report_path, stdio=self.stdio)
+            return self.execute()
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def check_file_valid(self):
         with open(self.variable_file_name, 'r') as f:
@@ -75,36 +84,36 @@ class AnalyzeVariableHandler(object):
             if not header.endswith('RECORD_TIME'):
                 flag = 0
             if flag == 0:
-                self.stdio.error('args --file [{0}] is not a valid variable file, Please specify it again'.format(os.path.abspath(self.variable_file_name)))
+                self._log_error(f'args --file [{os.path.abspath(self.variable_file_name)}] is not a valid variable file, Please specify it again')
                 return False
             else:
                 return True
 
     def init_option(self):
-        options = self.context.options
-        store_dir_option = Util.get_option(options, 'store_dir')
-        offline_file_option = Util.get_option(options, 'file')
+        store_dir_option = self._get_option('store_dir')
+        offline_file_option = self._get_option('file')
+
         if offline_file_option:
             if not os.path.exists(os.path.abspath(offline_file_option)):
-                self.stdio.error('args --file [{0}] not exist: No such file, Please specify it again'.format(os.path.abspath(offline_file_option)))
+                self._log_error(f'args --file [{os.path.abspath(offline_file_option)}] not exist: No such file, Please specify it again')
                 return False
             else:
                 self.variable_file_name = os.path.abspath(offline_file_option)
                 if not self.check_file_valid():
                     return False
         else:
-            self.stdio.error("args --file need provided to find the parts where variables have changed.")
+            self._log_error("args --file need provided to find the parts where variables have changed.")
             return False
 
         if store_dir_option and store_dir_option != "./":
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.export_report_path = os.path.abspath(store_dir_option)
         else:
             store_dir_option = './variable_report'
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('The report directory is not specified, and a "variable_report" directory will be created in the current directory.'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'The report directory is not specified, and a "variable_report" directory will be created in the current directory.')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.export_report_path = os.path.abspath(store_dir_option)
 
@@ -144,20 +153,20 @@ class AnalyzeVariableHandler(object):
         if not is_empty:
             now = datetime.datetime.now()
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
-            file_name = self.export_report_path + '/variables_changed_{0}.table'.format(date_format)
+            file_name = f'{self.export_report_path}/variables_changed_{date_format}.table'
             fp = open(file_name, 'a+', encoding="utf8")
             fp.write(report_default_tb.get_string() + "\n")
             fp.close()
-            self.stdio.print(Fore.RED + "Since {0}, the following variables have changed：".format(last_gather_time) + Style.RESET_ALL)
-            self.stdio.print(report_default_tb.get_string())
-            self.stdio.print("Analyze variables changed finished. For more details, please run cmd '" + Fore.YELLOW + " cat {0} ".format(file_name) + Style.RESET_ALL + "'")
+            self._log_info(Fore.RED + f"Since {last_gather_time}, the following variables have changed：" + Style.RESET_ALL)
+            self._log_info(report_default_tb.get_string())
+            self._log_info("Analyze variables changed finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string()})
         else:
-            self.stdio.print("Analyze variables changed finished. Since {0}, No changes in variables".format(last_gather_time))
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": "Since {0}, No changes in variables".format(last_gather_time)})
+            self._log_info(f"Analyze variables changed finished. Since {last_gather_time}, No changes in variables")
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": f"Since {last_gather_time}, No changes in variables"})
 
     def execute(self):
         try:
             return self.analyze_variable()
         except Exception as e:
-            self.stdio.error("variable info analyze failed, error message: {0}".format(e))
+            self._log_error(f"variable info analyze failed, error message: {e}")

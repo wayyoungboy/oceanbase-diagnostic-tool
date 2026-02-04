@@ -25,10 +25,10 @@ import datetime
 
 import tabulate
 
+from src.common.base_handler import BaseHandler
 from src.common.command import get_observer_pid, mkdir, zip_dir, get_file_size, download_file, delete_file_force, is_empty_dir, is_empty_file
-from src.common.command import SshClient
+from src.common.ssh_client.ssh import SshClient
 from src.common.constant import const
-from src.handler.base_shell_handler import BaseShellHandler
 from src.common.tool import Util
 from src.common.tool import DirectoryUtil
 from src.common.tool import FileUtil
@@ -37,11 +37,9 @@ from src.common.tool import TimeUtils
 from src.common.result_type import ObdiagResult
 
 
-class GatherPerfHandler(BaseShellHandler):
-    def __init__(self, context, gather_pack_dir='./', is_scene=False):
-        super(GatherPerfHandler, self).__init__()
-        self.context = context
-        self.stdio = context.stdio
+class GatherPerfHandler(BaseHandler):
+    def _init(self, gather_pack_dir='./', is_scene=False, **kwargs):
+        """Subclass initialization"""
         self.is_ssh = True
         self.local_stored_path = gather_pack_dir
         self.remote_stored_path = None
@@ -49,30 +47,36 @@ class GatherPerfHandler(BaseShellHandler):
         self.is_scene = is_scene
         self.scope = "all"
         self.config_path = const.DEFAULT_CONFIG_PATH
+
         if self.context.get_variable("gather_timestamp", None):
             self.gather_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
 
-    def init_config(self):
+        # Initialize config
         self.nodes = self.context.cluster_config['servers']
         new_nodes = Util.get_nodes_list(self.context, self.nodes, self.stdio)
         if new_nodes:
             self.nodes = new_nodes
-        self.inner_config = self.context.inner_config
-        if self.inner_config is None:
-            self.file_number_limit = 20
-            self.file_size_limit = 2 * 1024 * 1024 * 1024
-        else:
-            basic_config = self.inner_config['obdiag']['basic']
-            self.file_number_limit = int(basic_config["file_number_limit"])
-            self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
-            self.config_path = basic_config['config_path']
-        return True
 
-    def init_option(self):
-        options = self.context.options
-        count_option = Util.get_option(options, 'count')
+        # Use ConfigAccessor if available
+        if self.config:
+            self.file_number_limit = self.config.gather_file_number_limit
+            self.file_size_limit = self.config.gather_file_size_limit
+            self.config_path = self.config.config_path
+        else:
+            # Fallback to direct config access
+            if self.context.inner_config is None:
+                self.file_number_limit = 20
+                self.file_size_limit = 2 * 1024 * 1024 * 1024
+            else:
+                basic_config = self.context.inner_config['obdiag']['basic']
+                self.file_number_limit = int(basic_config["file_number_limit"])
+                self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
+                self.config_path = basic_config['config_path']
+
+        # Initialize options
+        count_option = self._get_option('count')
         if self.context.get_variable("gather_perf_sample_count", None):
             count_option = self.context.get_variable("gather_perf_sample_count")
         if isinstance(count_option, str):
@@ -88,79 +92,83 @@ class GatherPerfHandler(BaseShellHandler):
         else:
             count_option = 100000000
         self.count_option = count_option
-        store_dir_option = Util.get_option(options, 'store_dir')
+
+        store_dir_option = self._get_option('store_dir')
         if store_dir_option and store_dir_option != './':
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.local_stored_path = os.path.abspath(store_dir_option)
-        scope_option = Util.get_option(options, 'scope')
+
+        scope_option = self._get_option('scope')
         if scope_option:
             self.scope = scope_option
-        return True
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        if self.is_scene:
-            pack_dir_this_command = self.local_stored_path
-        else:
-            pack_dir_this_command = os.path.join(self.local_stored_path, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
-        self.stdio.verbose("Use {0} as pack dir.".format(pack_dir_this_command))
-        gather_tuples = []
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-        def handle_from_node(node):
-            st = time.time()
-            resp = self.__handle_from_node(node, pack_dir_this_command)
-            file_size = ""
-            # Determine if this is an error: skip or not successful
-            is_err = resp.get("skip", False) or not resp.get("success", False)
+        try:
+            if self.is_scene:
+                pack_dir_this_command = self.local_stored_path
+            else:
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+            self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
+            gather_tuples = []
 
-            # Build error message: include warnings if present
-            error_msg = resp.get("error", "")
-            if resp.get("warnings") and error_msg:
-                # If both warnings and errors exist, combine them
-                error_msg = error_msg + "; Warnings: " + "; ".join(resp["warnings"])
-            elif resp.get("warnings") and not error_msg:
-                # If only warnings exist (partial success), show them as warnings in status
-                error_msg = "Partial success: " + "; ".join(resp["warnings"])
+            def handle_from_node(node):
+                st = time.time()
+                resp = self.__handle_from_node(node, pack_dir_this_command)
+                file_size = ""
+                # Determine if this is an error: skip or not successful
+                is_err = resp.get("skip", False) or not resp.get("success", False)
 
-            if resp.get("success") and resp.get("gather_pack_path") and os.path.exists(resp["gather_pack_path"]):
-                try:
-                    file_size = os.path.getsize(resp["gather_pack_path"])
-                except Exception as e:
-                    self.stdio.warn("Failed to get file size for {0}: {1}".format(resp.get("gather_pack_path", ""), e))
-                    file_size = ""
-            gather_tuples.append((node.get("ip"), is_err, error_msg, file_size, int(time.time() - st), resp.get("gather_pack_path", "")))
+                # Build error message: include warnings if present
+                error_msg = resp.get("error", "")
+                if resp.get("warnings") and error_msg:
+                    # If both warnings and errors exist, combine them
+                    error_msg = error_msg + "; Warnings: " + "; ".join(resp["warnings"])
+                elif resp.get("warnings") and not error_msg:
+                    # If only warnings exist (partial success), show them as warnings in status
+                    error_msg = "Partial success: " + "; ".join(resp["warnings"])
 
-        exec_tag = False
-        if self.is_ssh:
-            for node in self.nodes:
-                if node.get("ssh_type") == "docker" or node.get("ssh_type") == "kubernetes":
-                    self.stdio.warn("Skip gather from node {0} because it is a docker or kubernetes node".format(node.get("ip")))
-                    continue
+                if resp.get("success") and resp.get("gather_pack_path") and os.path.exists(resp["gather_pack_path"]):
+                    try:
+                        file_size = os.path.getsize(resp["gather_pack_path"])
+                    except Exception as e:
+                        self._log_warn(f"Failed to get file size for {resp.get('gather_pack_path', '')}: {e}")
+                        file_size = ""
+                gather_tuples.append((node.get("ip"), is_err, error_msg, file_size, int(time.time() - st), resp.get("gather_pack_path", "")))
+
+            exec_tag = False
+            if self.is_ssh:
+                for node in self.nodes:
+                    if node.get("ssh_type") == "docker" or node.get("ssh_type") == "kubernetes":
+                        self._log_warn(f"Skip gather from node {node.get('ip')} because it is a docker or kubernetes node")
+                        continue
+                    handle_from_node(node)
+                    exec_tag = True
+            else:
+                local_ip = NetUtils.get_inner_ip(self.stdio)
+                node = self.nodes[0]
+                node["ip"] = local_ip
                 handle_from_node(node)
                 exec_tag = True
-        else:
-            local_ip = NetUtils.get_inner_ip(self.stdio)
-            node = self.nodes[0]
-            node["ip"] = local_ip
-            for node in self.nodes:
-                handle_from_node(node)
-        if not exec_tag:
-            self.stdio.verbose("No node to gather from, skip")
+
+            if not exec_tag:
+                self._log_verbose("No node to gather from, skip")
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+
+            summary_tuples = self.__get_overall_summary(gather_tuples)
+            self._log_info(summary_tuples)
+            # Persist the summary results to a file
+            FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
+            last_info = f"For result details, please run cmd \033[32m' cat {os.path.join(pack_dir_this_command, 'result_summary.txt')} '\033[0m\n"
+            self._log_info(last_info)
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
 
-        summary_tuples = self.__get_overall_summary(gather_tuples)
-        self.stdio.print(summary_tuples)
-        # Persist the summary results to a file
-        FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
-        last_info = "For result details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(pack_dir_this_command, "result_summary.txt"))
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+        except Exception as e:
+            return self._handle_error(e)
 
     def __handle_from_node(self, node, local_stored_path):
         """
@@ -177,20 +185,20 @@ class GatherPerfHandler(BaseShellHandler):
         resp = {"success": False, "skip": False, "error": "", "warnings": [], "gather_pack_path": ""}
         remote_ip = node.get("ip") if self.is_ssh else NetUtils.get_inner_ip(self.stdio)
         remote_user = node.get("ssh_username")
-        self.stdio.verbose("Sending Collect Shell Command to node {0} ...".format(remote_ip))
+        self._log_verbose(f"Sending Collect Shell Command to node {remote_ip} ...")
         DirectoryUtil.mkdir(path=local_stored_path, stdio=self.stdio)
         now_time = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        remote_dir_name = "perf_{0}_{1}".format(node.get("ip").replace(":", "_"), now_time)
-        remote_dir_full_path = "/tmp/{0}".format(remote_dir_name)
+        remote_dir_name = f"perf_{node.get('ip').replace(':', '_')}_{now_time}"
+        remote_dir_full_path = f"/tmp/{remote_dir_name}"
         ssh_client = None
 
         try:
             ssh_client = SshClient(self.context, node)
         except Exception as e:
-            self.stdio.exception("ssh {0}@{1}: failed, Please check the node conf.".format(remote_user, remote_ip))
+            self.stdio.exception(f"ssh {remote_user}@{remote_ip}: failed, Please check the node conf.")
             resp["skip"] = True
             resp["success"] = False
-            resp["error"] = "SSH connection failed: {0}".format(str(e))
+            resp["error"] = f"SSH connection failed: {str(e)}"
             return resp
 
         try:

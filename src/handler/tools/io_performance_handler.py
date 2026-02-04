@@ -13,18 +13,17 @@
 """
 @time: 2025/12/04
 @file: io_performance_handler.py
-@desc: IO performance inspection using tsar
+@desc: IO performance inspection using tsar (Migrated to BaseHandler)
 """
+from src.common.base_handler import BaseHandler
 from src.common.ssh_client.ssh import SshClient
 from src.common.tool import Util
 from src.common.result_type import ObdiagResult
 
 
-class IoPerformanceHandler:
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
-        self.options = self.context.options
+class IoPerformanceHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.ob_cluster = self.context.cluster_config
         self.observer_nodes = []
         self._init_observer_nodes()
@@ -33,13 +32,18 @@ class IoPerformanceHandler:
         """Initialize observer nodes with SSH clients"""
         observer_nodes = self.ob_cluster.get("servers")
         if observer_nodes:
-            for node in observer_nodes:
-                try:
-                    ssh = SshClient(self.context, node)
-                    node["ssher"] = ssh
-                    self.observer_nodes.append(node)
-                except Exception as e:
-                    self.stdio.warn("Failed to create SSH client for node {0}: {1}".format(node.get("ip"), e))
+            # Use SSH connection manager if available
+            if self.ssh_manager:
+                self.observer_nodes = self.ssh_manager.setup_nodes_with_connections(self.context, observer_nodes, "observer")
+            else:
+                # Fallback: create SSH connections directly
+                for node in observer_nodes:
+                    try:
+                        ssh = SshClient(self.context, node)
+                        node["ssher"] = ssh
+                        self.observer_nodes.append(node)
+                    except Exception as e:
+                        self._log_warn(f"Failed to create SSH client for node {node.get('ip')}: {e}")
 
     def _get_disk_device(self, node, disk_type):
         """
@@ -56,40 +60,40 @@ class IoPerformanceHandler:
             if disk_type == "clog":
                 redo_dir = node.get("redo_dir")
                 if not redo_dir:
-                    self.stdio.error("redo_dir is not configured for node {0}".format(node.get("ip")))
+                    self._log_error(f"redo_dir is not configured for node {node.get('ip')}")
                     return None
                 # Find clog directory
-                cmd = 'find {0}/ -name "clog" -type d 2>/dev/null | head -1'.format(redo_dir)
-                self.stdio.verbose("Executing: {0}".format(cmd))
+                cmd = f'find {redo_dir}/ -name "clog" -type d 2>/dev/null | head -1'
+                self._log_verbose(f"Executing: {cmd}")
                 log_dir_path = ssh_client.exec_cmd(cmd).strip()
                 if not log_dir_path:
-                    self.stdio.error("Cannot find clog directory in {0}".format(redo_dir))
+                    self._log_error(f"Cannot find clog directory in {redo_dir}")
                     return None
             elif disk_type == "data":
                 data_dir = node.get("data_dir")
                 if not data_dir:
-                    self.stdio.error("data_dir is not configured for node {0}".format(node.get("ip")))
+                    self._log_error(f"data_dir is not configured for node {node.get('ip')}")
                     return None
                 # Find sstable directory
-                cmd = 'find {0}/ -name "sstable" -type d 2>/dev/null | head -1'.format(data_dir)
-                self.stdio.verbose("Executing: {0}".format(cmd))
+                cmd = f'find {data_dir}/ -name "sstable" -type d 2>/dev/null | head -1'
+                self._log_verbose(f"Executing: {cmd}")
                 log_dir_path = ssh_client.exec_cmd(cmd).strip()
                 if not log_dir_path:
-                    self.stdio.error("Cannot find sstable directory in {0}".format(data_dir))
+                    self._log_error(f"Cannot find sstable directory in {data_dir}")
                     return None
             else:
                 return None
 
             # Get the disk device name
-            cmd = 'device=$(df -P {0} | awk \'NR==2{{print $1}}\') && while [[ -n $device ]]; do parent=$(lsblk -no PKNAME $device 2>/dev/null); if [[ -n $parent ]]; then device=$parent; else echo $device; break; fi; done'.format(log_dir_path)
-            self.stdio.verbose("Executing: {0}".format(cmd))
+            cmd = f'device=$(df -P {log_dir_path} | awk \'NR==2{{print $1}}\') && while [[ -n $device ]]; do parent=$(lsblk -no PKNAME $device 2>/dev/null); if [[ -n $parent ]]; then device=$parent; else echo $device; break; fi; done'
+            self._log_verbose(f"Executing: {cmd}")
             disk_device = ssh_client.exec_cmd(cmd).strip()
             # Extract device name (e.g., /dev/sda -> sda)
             if disk_device.startswith('/dev/'):
                 disk_device = disk_device.replace('/dev/', '')
             return disk_device
         except Exception as e:
-            self.stdio.error("Failed to get disk device: {0}".format(e))
+            self._log_error(f"Failed to get disk device: {e}")
             return None
 
     def _check_tsar_installed(self, ssh_client):
@@ -197,36 +201,38 @@ class IoPerformanceHandler:
 
         return has_issue, high_await_count, total_count, max_await
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
         """Main handler method"""
+        self._validate_initialized()
+
         try:
-            disk = Util.get_option(self.options, 'disk')
-            date = Util.get_option(self.options, 'date')
+            disk = self._get_option('disk')
+            date = self._get_option('date')
 
             if not disk:
-                self.stdio.error("--disk parameter is required. Use 'clog', 'data', or device name (e.g., sda)")
+                self._log_error("--disk parameter is required. Use 'clog', 'data', or device name (e.g., sda)")
                 return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="--disk parameter is required")
 
             if not self.observer_nodes:
-                self.stdio.error("No observer nodes available. Please check your cluster configuration.")
+                self._log_error("No observer nodes available. Please check your cluster configuration.")
                 return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="No observer nodes available")
 
-            self.stdio.print("Starting IO performance inspection...")
-            self.stdio.print("Disk: {0}, Date: {1}".format(disk, date if date else "real-time"))
+            self._log_info("Starting IO performance inspection...")
+            self._log_info(f"Disk: {disk}, Date: {date if date else 'real-time'}")
 
             all_results = []
             for node in self.observer_nodes:
                 ip = node.get("ip")
                 ssh_client = node.get("ssher")
                 if not ssh_client:
-                    self.stdio.warn("Node {0} has no SSH client, skipping".format(ip))
+                    self._log_warn(f"Node {ip} has no SSH client, skipping")
                     continue
 
-                self.stdio.print("\nChecking node: {0}".format(ip))
+                self._log_info(f"\nChecking node: {ip}")
 
                 # Check if tsar is installed
                 if not self._check_tsar_installed(ssh_client):
-                    self.stdio.error("tsar is not installed on node {0}. Please install tsar first.".format(ip))
+                    self._log_error(f"tsar is not installed on node {ip}. Please install tsar first.")
                     all_results.append({"node": ip, "status": "failed", "error": "tsar not installed"})
                     continue
 
@@ -234,26 +240,26 @@ class IoPerformanceHandler:
                 if disk in ["clog", "data"]:
                     disk_device = self._get_disk_device(node, disk)
                     if not disk_device:
-                        self.stdio.error("Failed to get disk device for {0} on node {1}".format(disk, ip))
+                        self._log_error(f"Failed to get disk device for {disk} on node {ip}")
                         all_results.append({"node": ip, "status": "failed", "error": "Failed to get disk device"})
                         continue
-                    self.stdio.verbose("Detected disk device: {0}".format(disk_device))
+                    self._log_verbose(f"Detected disk device: {disk_device}")
                 else:
                     disk_device = disk
 
                 # Execute tsar command
-                self.stdio.print("Collecting IO performance data for {0} seconds...".format(25))
+                self._log_info("Collecting IO performance data for 25 seconds...")
                 tsar_output = self._execute_tsar(ssh_client, disk_device, date, duration=25)
 
                 if not tsar_output:
-                    self.stdio.error("Failed to collect tsar data on node {0}".format(ip))
+                    self._log_error(f"Failed to collect tsar data on node {ip}")
                     all_results.append({"node": ip, "status": "failed", "error": "Failed to collect tsar data"})
                     continue
 
                 # Parse await values
                 await_values = self._parse_tsar_output(tsar_output)
                 if not await_values:
-                    self.stdio.warn("No await values found in tsar output on node {0}".format(ip))
+                    self._log_warn(f"No await values found in tsar output on node {ip}")
                     all_results.append({"node": ip, "status": "warning", "error": "No await values found"})
                     continue
 
@@ -272,22 +278,22 @@ class IoPerformanceHandler:
                 all_results.append(result)
 
                 # Print results
-                self.stdio.print("Results for node {0}:".format(ip))
-                self.stdio.print("  Disk device: {0}".format(disk_device))
-                self.stdio.print("  Total samples: {0}".format(total_count))
-                self.stdio.print("  Samples with await > 10ms: {0} ({1}%)".format(high_count, round(high_count * 100.0 / total_count, 1) if total_count > 0 else 0))
-                self.stdio.print("  Max await: {0} ms".format(round(max_await, 2)))
+                self._log_info(f"Results for node {ip}:")
+                self._log_info(f"  Disk device: {disk_device}")
+                self._log_info(f"  Total samples: {total_count}")
+                self._log_info(f"  Samples with await > 10ms: {high_count} ({round(high_count * 100.0 / total_count, 1) if total_count > 0 else 0}%)")
+                self._log_info(f"  Max await: {round(max_await, 2)} ms")
                 if has_issue:
-                    self.stdio.print("  Status: CRITICAL - Disk IO performance issue detected (await frequently > 10ms)")
+                    self._log_info("  Status: CRITICAL - Disk IO performance issue detected (await frequently > 10ms)")
                 else:
-                    self.stdio.print("  Status: NORMAL - Disk IO performance is acceptable")
+                    self._log_info("  Status: NORMAL - Disk IO performance is acceptable")
 
             # Summary
-            self.stdio.print("\n" + "=" * 60)
-            self.stdio.print("Summary:")
+            self._log_info("\n" + "=" * 60)
+            self._log_info("Summary:")
             issue_nodes = [r for r in all_results if r.get("status") == "issue"]
             if issue_nodes:
-                self.stdio.print("  CRITICAL: {0} node(s) have disk IO performance issues".format(len(issue_nodes)))
+                self._log_info(f"  CRITICAL: {len(issue_nodes)} node(s) have disk IO performance issues")
                 for r in issue_nodes:
                     self.stdio.print("    - {0} (disk: {1}, max await: {2}ms)".format(r["node"], r["disk_device"], r["max_await_ms"]))
             else:
@@ -296,5 +302,4 @@ class IoPerformanceHandler:
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"results": all_results})
 
         except Exception as e:
-            self.stdio.error("IO performance inspection failed: {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="IO performance inspection failed: {0}".format(e))
+            return self._handle_error(e)

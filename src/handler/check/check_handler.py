@@ -13,7 +13,7 @@
 """
 @time: 2024/12/29
 @file: check_handler.py
-@desc: Handler for executing Python check tasks
+@desc: Handler for executing Python check tasks (Migrated to BaseHandler)
 """
 
 import os
@@ -24,6 +24,8 @@ import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+from src.common.base_handler import BaseHandler
+from src.common.result_type import ObdiagResult
 from src.common.ob_connector import OBConnector
 from src.common.scene import get_version_by_type
 from src.handler.check.check_exception import CheckException
@@ -32,7 +34,7 @@ from src.common.tool import Util, DynamicLoading
 from src.common.tool import StringUtils
 
 
-class CheckHandler:
+class CheckHandler(BaseHandler):
     """
     Handler for executing Python check tasks.
 
@@ -42,127 +44,132 @@ class CheckHandler:
     3. Generates check reports in various formats
     """
 
-    def __init__(self, context, check_target_type="observer"):
+    def _init(self, check_target_type="observer", **kwargs):
+        """Subclass initialization"""
         self.version = None
-        self.context = context
-        self.stdio = context.stdio
-        # init input parameters
         self.report = None
         self.tasks = None
-        # concurrent execution config, default 12 threads
-        self.max_workers = self.context.inner_config.get("check", {}).get("max_workers", 12)
-        self.work_path = os.path.expanduser(self.context.inner_config["check"]["work_path"] or "~/.obdiag/check")
-        self.export_report_path = os.path.expanduser(self.context.inner_config["check"]["report"]["report_path"] or "./check_report/")
-        self.export_report_type = self.context.inner_config["check"]["report"]["export_type"] or "table"
-        self.ignore_version = self.context.inner_config["check"]["ignore_version"] or False
+
+        # Use ConfigAccessor for configuration access
+        self.max_workers = self.config.check_max_workers
+        self.work_path = self.config.check_work_path
+        self.export_report_path = self.config.check_report_path
+        self.export_report_type = self.config.check_report_type
+        self.ignore_version = self.config.check_ignore_version
+
         self.cluster = self.context.cluster_config
+        self.check_target_type = check_target_type
+
+        # Get nodes based on target type
         if check_target_type == "observer":
             self.nodes = self.context.cluster_config.get("servers")
-        if check_target_type == "obproxy":
+        elif check_target_type == "obproxy":
             self.nodes = self.context.obproxy_config.get("servers")
-        self.tasks_base_path = os.path.expanduser(self.work_path + "/tasks/")
-        self.check_target_type = check_target_type
-        self.options = self.context.options
-        env_option = Util.get_option(self.options, 'env')
-        self.input_env = StringUtils.parse_env_display(env_option) or {}
+        else:
+            self.nodes = []
 
-        # init output parameters
-        self.stdio.verbose(
-            "CheckHandler input. ignore_version is {0}, cluster is {1}, nodes is {2}, "
-            "export_report_path is {3}, export_report_type is {4}, check_target_type is {5}, "
-            "tasks_base_path is {6}, input_env is {7}".format(
-                self.ignore_version,
-                self.cluster.get("ob_cluster_name") or self.cluster.get("obproxy_cluster_name"),
-                StringUtils.node_cut_passwd_for_log(self.nodes),
-                self.export_report_path,
-                self.export_report_type,
-                self.check_target_type,
-                self.tasks_base_path,
-                self.input_env,
-            )
+        self.tasks_base_path = os.path.join(self.work_path, "tasks")
+
+        # Get environment option
+        env_option = self._get_option('env')
+        self.input_env = StringUtils.parse_env_display(env_option) if env_option else {}
+
+        # Log initialization info
+        self._log_verbose(
+            f"CheckHandler input. ignore_version={self.ignore_version}, "
+            f"cluster={self.cluster.get('ob_cluster_name') or self.cluster.get('obproxy_cluster_name')}, "
+            f"nodes={StringUtils.node_cut_passwd_for_log(self.nodes)}, "
+            f"export_report_path={self.export_report_path}, "
+            f"export_report_type={self.export_report_type}, "
+            f"check_target_type={self.check_target_type}, "
+            f"tasks_base_path={self.tasks_base_path}, "
+            f"input_env={self.input_env}"
         )
 
-        # case_package_file
-        if check_target_type is not None:
-            case_package_file = self.work_path + "/" + check_target_type + "_check_package.yaml"
-        else:
+        # Validate check_target_type
+        if not self.check_target_type:
             raise CheckException("check_target_type is null. Please check the conf")
+
+        # case_package_file
+        case_package_file = os.path.join(self.work_path, f"{self.check_target_type}_check_package.yaml")
         case_package_file = os.path.expanduser(case_package_file)
         if os.path.exists(case_package_file):
             self.package_file_name = case_package_file
         else:
-            raise CheckException("case_package_file {0} is not exist".format(case_package_file))
-        self.stdio.verbose("case_package_file is " + self.package_file_name)
+            raise CheckException(f"case_package_file {case_package_file} is not exist")
+        self._log_verbose(f"case_package_file is {self.package_file_name}")
 
         # checker tasks_base_path
-        if check_target_type is not None:
-            tasks_base_path = self.tasks_base_path + "/" + check_target_type
-        else:
-            raise CheckException("check_target_type is null. Please check the conf")
+        tasks_base_path = os.path.join(self.tasks_base_path, self.check_target_type)
         tasks_base_path = os.path.expanduser(tasks_base_path)
         if os.path.exists(tasks_base_path):
             self.tasks_base_path = tasks_base_path
         else:
-            raise CheckException("tasks_base_path {0} is not exist".format(tasks_base_path))
-        self.stdio.verbose("tasks_base_path is " + self.tasks_base_path)
+            raise CheckException(f"tasks_base_path {tasks_base_path} is not exist")
+        self._log_verbose(f"tasks_base_path is {self.tasks_base_path}")
 
-        # input_param
-        self.options = self.context.options
+        # Setup SSH connections using connection manager if available
+        # Note: SSH connections can be created per-task in __execute_one for thread safety,
+        # but we also support pre-creating them here if ssh_manager is available
+        if hasattr(self, 'ssh_manager') and self.ssh_manager and self.nodes:
+            self.nodes = self.ssh_manager.setup_nodes_with_connections(self.context, self.nodes, self.check_target_type)
+        else:
+            # Fallback: SSH connections will be created per-task in __execute_one
+            # This avoids connection contention and ensures thread safety
+            pass
 
-        # Note: SSH connections are created per-task in __execute_one to avoid connection contention
-        # Each task gets its own independent SSH connections for thread safety
-
-        # get version
-        if Util.get_option(self.options, 'cases') != "build_before":
+        # Get version and setup connection pool
+        if self._get_option('cases') != "build_before":
             self.version = get_version_by_type(self.context, self.check_target_type, self.stdio)
             obConnectorPool = None
             try:
                 # Connection pool size matches max_workers for optimal concurrency
                 pool_size = min(self.max_workers, 12)  # max 12 connections to avoid overloading DB
-                obConnectorPool = CheckOBConnectorPool(context, pool_size, self.cluster)
+                obConnectorPool = CheckOBConnectorPool(self.context, pool_size, self.cluster)
             except Exception as e:
-                self.stdio.warn("obConnector init error. Error info is {0}".format(e))
+                self._log_warn(f"obConnector init error. Error info is {e}")
             finally:
                 self.context.set_variable('check_obConnector_pool', obConnectorPool)
         else:
-            self.stdio.warn("check cases is build_before, so don't get version")
+            self._log_warn("check cases is build_before, so don't get version")
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
         """Main entry point for check execution."""
+        self._validate_initialized()
+
         try:
             package_name = None
             input_tasks = None
 
-            # get input tasks or package name
+            # Get input tasks or package name
             if self.check_target_type == "obproxy":
-                if Util.get_option(self.options, 'obproxy_tasks'):
-                    input_tasks = Util.get_option(self.options, 'obproxy_tasks')
-                if Util.get_option(self.options, 'obproxy_cases'):
-                    package_name = Util.get_option(self.options, 'obproxy_cases')
-            if self.check_target_type == "observer":
-                if Util.get_option(self.options, 'observer_tasks'):
-                    input_tasks = Util.get_option(self.options, 'observer_tasks')
-                if Util.get_option(self.options, 'cases'):
-                    package_name = Util.get_option(self.options, 'cases')
+                input_tasks = self._get_option('obproxy_tasks')
+                package_name = self._get_option('obproxy_cases')
+            elif self.check_target_type == "observer":
+                input_tasks = self._get_option('observer_tasks')
+                package_name = self._get_option('cases')
 
-            if Util.get_option(self.options, 'cases') == "build_before" and self.check_target_type == "obproxy":
-                self.stdio.print("when cases is build_before, not check obproxy")
-                return
+            if self._get_option('cases') == "build_before" and self.check_target_type == "obproxy":
+                self._log_info("when cases is build_before, not check obproxy")
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "obproxy check skipped"})
 
-            if Util.get_option(self.options, 'store_dir'):
-                self.export_report_path = Util.get_option(self.options, 'store_dir')
-                self.stdio.verbose("export_report_path change to " + self.export_report_path)
-            self.export_report_path = os.path.expanduser(self.export_report_path)
+            # Update export_report_path from options
+            store_dir = self._get_option('store_dir')
+            if store_dir:
+                self.export_report_path = os.path.expanduser(store_dir)
+                self._log_verbose(f"export_report_path change to {self.export_report_path}")
+
             if not os.path.exists(self.export_report_path):
-                self.stdio.warn("{0} not exists. mkdir it!".format(self.export_report_path))
-                os.mkdir(self.export_report_path)
+                self._log_warn(f"{self.export_report_path} not exists. mkdir it!")
+                os.makedirs(self.export_report_path, exist_ok=True)
 
-            # change self.export_report_type
-            if Util.get_option(self.options, 'report_type'):
-                self.export_report_type = Util.get_option(self.options, 'report_type')
+            # Change self.export_report_type
+            report_type = self._get_option('report_type')
+            if report_type:
+                self.export_report_type = report_type
                 if self.export_report_type not in ["table", "json", "xml", "yaml", "html"]:
                     raise CheckException("report_type must be table, json, xml, yaml, html")
-            self.stdio.verbose("export_report_path is " + self.export_report_path)
+            self._log_verbose(f"export_report_path is {self.export_report_path}")
 
             # get tasks
             self.tasks = {}
@@ -209,16 +216,19 @@ class CheckHandler:
                             new_tasks[task_name] = task_value
                     self.tasks = new_tasks
 
-            self.stdio.verbose("tasks is {0}".format(self.tasks.keys()))
-            return self.__execute()
+            self._log_verbose(f"tasks is {list(self.tasks.keys())}")
+            result = self.__execute()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data=result)
+        except CheckException as e:
+            return self._handle_error(e, error_code=ObdiagResult.INPUT_ERROR_CODE)
         except Exception as e:
-            self.stdio.error("Get package tasks failed. Error info is {0}".format(e))
-            self.stdio.verbose(traceback.format_exc())
-            raise CheckException("Internal error: {0}".format(e))
+            self._log_error(f"Get package tasks failed. Error info is {e}")
+            self._log_verbose(traceback.format_exc())
+            return self._handle_error(e)
 
     def get_all_tasks(self):
         """Load all Python check tasks from the tasks directory."""
-        self.stdio.verbose("get all tasks")
+        self._log_verbose("Getting all tasks")
         current_path = self.tasks_base_path
         tasks = {}
 
@@ -227,24 +237,24 @@ class CheckHandler:
                 # Only load Python files
                 if file.endswith('.py') and not file.startswith('__'):
                     folder_name = os.path.basename(root)
-                    task_name = "{}.{}".format(folder_name, file.split('.')[0])
+                    task_name = f"{folder_name}.{file.split('.')[0]}"
                     try:
                         DynamicLoading.add_lib_path(root)
                         task_module = DynamicLoading.import_module(file[:-3], self.stdio)
                         attr_name = task_name.split('.')[-1]
                         if task_module is None:
-                            self.stdio.error("{0} import_module failed: module is None".format(task_name))
+                            self._log_error(f"{task_name} import_module failed: module is None")
                             continue
                         if not hasattr(task_module, attr_name):
-                            self.stdio.error("{0} import_module failed: missing {1} attribute. Module attrs: {2}".format(task_name, attr_name, [x for x in dir(task_module) if not x.startswith('_')]))
+                            self._log_error(f"{task_name} import_module failed: missing {attr_name} attribute. " f"Module attrs: {[x for x in dir(task_module) if not x.startswith('_')]}")
                             continue
                         tasks[task_name] = getattr(task_module, attr_name)
                     except Exception as e:
-                        self.stdio.error("import_module {0} failed: {1}".format(task_name, e))
-                        raise CheckException("import_module {0} failed: {1}".format(task_name, e))
+                        self._log_error(f"import_module {task_name} failed: {e}")
+                        raise CheckException(f"import_module {task_name} failed: {e}")
 
         if len(tasks) == 0:
-            raise CheckException("No tasks found in {0}".format(current_path))
+            raise CheckException(f"No tasks found in {current_path}")
         self.tasks = tasks
 
     def get_package_tasks(self, package_name):
@@ -252,12 +262,14 @@ class CheckHandler:
         with open(self.package_file_name, 'r', encoding='utf-8') as file:
             package_file_data = yaml.safe_load(file)
             packege_tasks = package_file_data
+
         if package_name not in packege_tasks:
             if package_name == "filter":
                 return []
             else:
-                raise CheckException("no cases name is {0}".format(package_name))
-        self.stdio.verbose("by cases name: {0}, get cases: {1}".format(package_name, packege_tasks[package_name]))
+                raise CheckException(f"no cases name is {package_name}")
+
+        self._log_verbose(f"by cases name: {package_name}, get cases: {packege_tasks[package_name]}")
         if packege_tasks[package_name].get("tasks") is None:
             return []
         return packege_tasks[package_name].get("tasks")
@@ -266,7 +278,7 @@ class CheckHandler:
         """Execute a single check task."""
         task_instance = None
         try:
-            self.stdio.verbose("execute task: {0}".format(task_name))
+            self._log_verbose(f"execute task: {task_name}")
             report = TaskReport(self.context, task_name)
 
             # Pre-check: verify OS compatibility
@@ -278,15 +290,15 @@ class CheckHandler:
                 # Check if current OS is supported
                 current_os = self.__get_current_os()
                 if current_os not in supported_os:
-                    self.stdio.verbose("Task {0} skipped: requires {1}, current OS is {2}".format(task_name, supported_os, current_os))
-                    report.add_warning("Task skipped: requires OS {0}, current is {1}".format(supported_os, current_os))
+                    self._log_verbose(f"Task {task_name} skipped: requires {supported_os}, current OS is {current_os}")
+                    report.add_warning(f"Task skipped: requires OS {supported_os}, current is {current_os}")
                     return report
 
             if not self.ignore_version:
                 version = self.version
-                if version or Util.get_option(self.options, 'cases') == "build_before":
+                if version or self._get_option('cases') == "build_before":
                     self.cluster["version"] = version
-                    self.stdio.verbose("cluster.version is {0}".format(self.cluster["version"]))
+                    self._log_verbose(f"cluster.version is {self.cluster['version']}")
 
                     # Execute Python task
                     # SSH connections are created in TaskBase.init() for thread safety
@@ -294,12 +306,12 @@ class CheckHandler:
                     task_instance.init(self.context, report)
                     task_instance.execute()
 
-                    self.stdio.verbose("execute task end: {0}".format(task_name))
+                    self._log_verbose(f"execute task end: {task_name}")
                     return report
                 else:
-                    self.stdio.error("can't get version")
+                    self._log_error("can't get version")
             else:
-                self.stdio.verbose("ignore version")
+                self._log_verbose("ignore version")
                 # Execute Python task without version check
                 # SSH connections are created in TaskBase.init() for thread safety
                 task_instance = self.tasks[task_name]
@@ -307,26 +319,26 @@ class CheckHandler:
                 task_instance.execute()
                 return report
         except Exception as e:
-            self.stdio.error("execute_one Exception: {0}".format(e))
-            raise CheckException("execute_one Exception: {0}".format(e))
+            self._log_error(f"execute_one Exception: {e}")
+            raise CheckException(f"execute_one Exception: {e}")
         finally:
             # Cleanup task resources (release connection back to pool and close SSH connections)
             if task_instance and hasattr(task_instance, 'cleanup'):
                 try:
                     task_instance.cleanup()
                 except Exception as cleanup_error:
-                    self.stdio.warn("task cleanup error: {0}".format(cleanup_error))
+                    self._log_warn(f"task cleanup error: {cleanup_error}")
 
     def __execute(self):
         """Execute all check tasks concurrently and generate report."""
         try:
             task_count = len(self.tasks.keys())
-            self.stdio.verbose("execute_all_tasks. the number of tasks is {0}, tasks is {1}".format(task_count, self.tasks.keys()))
+            self._log_verbose(f"execute_all_tasks. the number of tasks is {task_count}, tasks is {list(self.tasks.keys())}")
             self.report = CheckReport(self.context, export_report_path=self.export_report_path, export_report_type=self.export_report_type, report_target=self.check_target_type)
 
             # Determine actual worker count (don't use more workers than tasks)
             actual_workers = min(self.max_workers, task_count) if task_count > 0 else 1
-            self.stdio.verbose("Starting concurrent execution with {0} workers".format(actual_workers))
+            self._log_verbose(f"Starting concurrent execution with {actual_workers} workers")
 
             # Execute tasks concurrently using ThreadPoolExecutor
             task_names = list(self.tasks.keys())
@@ -345,18 +357,18 @@ class CheckHandler:
                             self.report.add_task_report(t_report)
                     except Exception as e:
                         failed_tasks.append(task_name)
-                        self.stdio.error("Task {0} failed with exception: {1}".format(task_name, e))
+                        self._log_error(f"Task {task_name} failed with exception: {e}")
 
             if failed_tasks:
-                self.stdio.warn("The following tasks failed: {0}".format(failed_tasks))
+                self._log_warn(f"The following tasks failed: {failed_tasks}")
 
             self.report.export_report()
             return self.report.report_tobeMap()
         except CheckReportException as e:
-            self.stdio.error("Report error: {0}".format(e))
-            raise CheckException("Report error: {0}".format(e))
+            self._log_error(f"Report error: {e}")
+            raise CheckException(f"Report error: {e}")
         except Exception as e:
-            raise CheckException("Internal error: {0}".format(e))
+            raise CheckException(f"Internal error: {e}")
         finally:
             # Cleanup: close SSH connections
             self.__cleanup()
@@ -366,10 +378,10 @@ class CheckHandler:
         try:
             return self.__execute_one(task_name)
         except Exception as e:
-            self.stdio.error("execute_one_safe Exception for task {0}: {1}".format(task_name, e))
+            self._log_error(f"execute_one_safe Exception for task {task_name}: {e}")
             # Return a failed report instead of raising
             report = TaskReport(self.context, task_name)
-            report.add_fail("Task execution failed: {0}".format(str(e)))
+            report.add_fail(f"Task execution failed: {str(e)}")
             return report
 
     def __get_current_os(self):
@@ -389,9 +401,20 @@ class CheckHandler:
 
     def __cleanup(self):
         """Cleanup all resources after check execution."""
-        # Note: SSH connections are now created per-task and cleaned up in __execute_one
-        # No need to cleanup here as connections are task-specific
-        self.stdio.verbose("Check execution cleanup completed")
+        try:
+            # Return SSH connections to pool if using connection manager
+            if hasattr(self, 'ssh_manager') and self.ssh_manager and self.nodes:
+                for node in self.nodes:
+                    ssher = node.get("ssher")
+                    if ssher:
+                        self.ssh_manager.return_connection(ssher)
+            else:
+                # Note: If SSH connections were created per-task, they are cleaned up in __execute_one
+                # No additional cleanup needed here for task-specific connections
+                pass
+            self._log_verbose("Check execution cleanup completed")
+        except Exception as e:
+            self._log_warn(f"Cleanup error: {e}")
 
 
 class CheckOBConnectorPool:

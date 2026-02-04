@@ -18,17 +18,16 @@
 
 import os
 
+from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
-from src.common.stdio import SafeStdio
 from src.common.tool import YamlUtils
 from src.handler.display.scenes.register import hardcode_scene_list
 from src.common.tool import Util
 
 
-class DisplayScenesListHandler(SafeStdio):
-    def __init__(self, context, yaml_tasks_base_path="~/.obdiag/display/tasks/"):
-        self.context = context
-        self.stdio = context.stdio
+class DisplayScenesListHandler(BaseHandler):
+    def _init(self, yaml_tasks_base_path="~/.obdiag/display/tasks/", **kwargs):
+        """Subclass initialization"""
         self.observer_tasks = {}
         self.obproxy_tasks = {}
         self.other_tasks = {}
@@ -37,18 +36,25 @@ class DisplayScenesListHandler(SafeStdio):
         if os.path.exists(base_path):
             self.yaml_tasks_base_path = base_path
         else:
-            self.stdio.error("Failed to find yaml task path: {0}".format(base_path))
+            raise ValueError(f"Failed to find yaml task path: {base_path}")
 
-    def handle(self):
-        self.stdio.verbose("list display scene")
-        self.get_all_yaml_tasks()
-        self.get_all_code_tasks()
-        self.stdio.verbose("len of observer_tasks: {0}; len of observer_tasks: {1}; len of observer_tasks: {2};".format(len(self.observer_tasks), len(self.obproxy_tasks), len(self.other_tasks)))
-        if (len(self.observer_tasks) + len(self.obproxy_tasks) + len(self.other_tasks)) == 0:
-            self.stdio.error("Failed to find any tasks")
-            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="Failed to find any tasks")
-        else:
-            return self.print_scene_data()
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            self._log_verbose("list display scene")
+            self.get_all_yaml_tasks()
+            self.get_all_code_tasks()
+            self._log_verbose(f"len of observer_tasks: {len(self.observer_tasks)}; len of obproxy_tasks: {len(self.obproxy_tasks)}; len of other_tasks: {len(self.other_tasks)};")
+            if (len(self.observer_tasks) + len(self.obproxy_tasks) + len(self.other_tasks)) == 0:
+                self._log_error("Failed to find any tasks")
+                return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="Failed to find any tasks")
+            else:
+                return self.print_scene_data()
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def get_all_yaml_tasks(self):
         try:
@@ -67,7 +73,7 @@ class DisplayScenesListHandler(SafeStdio):
                         else:
                             self.other_tasks[task_name] = task_data
         except Exception as e:
-            self.stdio.error("get all yaml task failed, error: ", e)
+            self._log_error(f"get all yaml task failed, error: {e}")
 
     def get_all_code_tasks(self):
         try:
@@ -79,7 +85,7 @@ class DisplayScenesListHandler(SafeStdio):
                 else:
                     self.other_tasks[scene.name] = self.__get_hardcode_task(scene)
         except Exception as e:
-            self.stdio.error("get all hard code task failed, error: ", e)
+            self._log_error(f"get all hard code task failed, error: {e}")
 
     def __get_hardcode_task(self, scene):
         return {
@@ -103,7 +109,7 @@ class DisplayScenesListHandler(SafeStdio):
                             task_data["name"] = task_name
             return task_data
         except Exception as e:
-            self.stdio.error("get one yaml task failed, error: ", e)
+            self._log_error(f"get one yaml task failed, error: {e}")
 
     def is_code_task(self, name):
         try:
@@ -112,7 +118,7 @@ class DisplayScenesListHandler(SafeStdio):
                     return True
             return False
         except Exception as e:
-            self.stdio.error("get one code task failed, error: ", e)
+            self._log_error(f"get one code task failed, error: {e}")
             return False
 
     def print_scene_data(self):

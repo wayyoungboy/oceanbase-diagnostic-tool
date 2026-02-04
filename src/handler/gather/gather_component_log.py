@@ -13,7 +13,7 @@
 """
 @time: 2024/11/8
 @file: gather_component_log.py
-@desc: Component log gathering - main entry point
+@desc: Component log gathering - main entry point (Migrated to BaseHandler)
 """
 
 import copy
@@ -25,10 +25,10 @@ import threading
 import traceback
 
 from prettytable import PrettyTable
+from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import FileUtil, TimeUtils
 from src.common.result_type import ObdiagResult
-from src.handler.base_shell_handler import BaseShellHandler
 from src.handler.gather.plugins.redact import Redact
 from src.handler.gather.gather_log import (
     ObserverGatherLogOnNode,
@@ -37,7 +37,7 @@ from src.handler.gather.gather_log import (
 )
 
 
-class GatherComponentLogHandler(BaseShellHandler):
+class GatherComponentLogHandler(BaseHandler):
     """Main handler for component log gathering"""
 
     # Component handler mapping
@@ -60,64 +60,43 @@ class GatherComponentLogHandler(BaseShellHandler):
     DEFAULT_SINCE_MINUTES = 30
     DEFAULT_THREAD_NUMS = 3
 
-    def __init__(self, *args, **kwargs):
-        super().__init__()
+    def _init(
+        self, target=None, from_option=None, to_option=None, since=None, scope=None, grep=None, store_dir=None, temp_dir=None, redact=None, nodes=None, is_scene=False, oms_log_path=None, thread_nums=None, oms_component_id=None, recent_count=0, **kwargs
+    ):
+        """Subclass initialization"""
         self.all_files = None
         self.gather_tuples = None
-        self.oms_component_id = None
+        self.oms_component_id = oms_component_id
         self.redact_dir = None
         self.gather_log_conf_dict = None
-        self.thread_nums = None
-        self.oms_log_path = None
-        self.is_scene = None
-        self.inner_config = None
-        self.stdio = None
-        self.context = None
-        self.target = None
-        self.from_option = None
-        self.to_option = None
-        self.since_option = None
-        self.scope = None
-        self.grep = None
-        self.store_dir = None
-        self.temp_dir = None
-        self.redact = None
-        self.nodes = None
+        self.thread_nums = thread_nums
+        self.oms_log_path = oms_log_path
+        self.is_scene = is_scene
+        self.target = target
+        self.from_option = from_option.strip() if from_option else None
+        self.to_option = to_option.strip() if to_option else None
+        self.since_option = since
+        self.scope = scope
+        if isinstance(self.scope, bool):
+            self.scope = "all"
+        self.grep = grep
+        self.store_dir = store_dir
+        self.temp_dir = temp_dir or const.GATHER_LOG_TEMPORARY_DIR_DEFAULT
+        self.redact = redact
+        self.nodes = nodes
+
+        # Process recent_count
+        if recent_count is None:
+            recent_count = 0
+        try:
+            self.recent_count = int(recent_count)
+        except (ValueError, TypeError):
+            self.recent_count = 0
+
+        # Initialize result
         self.result = ObdiagResult(ObdiagResult.SUCCESS_CODE, data={})
 
-    def init(self, context, *args, **kwargs):
         try:
-            self.context = context
-            self.stdio = self.context.stdio
-            self.inner_config = self.context.inner_config
-            self.target = kwargs.get('target', None)
-            self.from_option = kwargs.get('from_option', None)
-            if self.from_option:
-                self.from_option = self.from_option.strip()
-            self.to_option = kwargs.get('to_option', None)
-            if self.to_option:
-                self.to_option = self.to_option.strip()
-            self.since_option = kwargs.get('since', None)
-            self.scope = kwargs.get('scope', None)
-            if isinstance(self.scope, bool):
-                self.scope = "all"
-            self.grep = kwargs.get('grep', None)
-            self.store_dir = kwargs.get('store_dir', None)
-            self.temp_dir = kwargs.get('temp_dir', const.GATHER_LOG_TEMPORARY_DIR_DEFAULT)
-            self.redact = kwargs.get('redact', None)
-            self.nodes = kwargs.get('nodes', None)
-            self.is_scene = kwargs.get('is_scene', False)
-            self.oms_log_path = kwargs.get('oms_log_path', None)
-            self.thread_nums = kwargs.get('thread_nums', self.DEFAULT_THREAD_NUMS)
-            self.oms_component_id = kwargs.get('oms_component_id', None)
-            self.recent_count = kwargs.get('recent_count', 0)
-            if self.recent_count is None:
-                self.recent_count = 0
-            try:
-                self.recent_count = int(self.recent_count)
-            except (ValueError, TypeError):
-                self.recent_count = 0
-
             self.__check_option()
 
             # Build config dict for gather log on node
@@ -136,8 +115,16 @@ class GatherComponentLogHandler(BaseShellHandler):
             }
 
         except Exception as e:
-            self.stdio.error("init GatherComponentLogHandler failed, error: {0}".format(str(e)))
-            self.result = ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="init GatherComponentLogHandler failed, error: {0}".format(str(e)))
+            self._log_error(f"init GatherComponentLogHandler failed, error: {str(e)}")
+            self.result = ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data=f"init GatherComponentLogHandler failed, error: {str(e)}")
+
+    def init(self, context, *args, **kwargs):
+        """Compatibility wrapper for existing init calls"""
+        # Call BaseHandler.init first
+        super().init(context, **kwargs)
+        # Then call _init with kwargs
+        self._init(**kwargs)
+        return self
 
     def __check_option(self):
         """Validate and process input options"""
@@ -171,7 +158,7 @@ class GatherComponentLogHandler(BaseShellHandler):
             self.store_dir = "./"
 
         if not os.path.exists(self.store_dir):
-            self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(self.store_dir)))
+            self._log_warn(f'args --store_dir [{os.path.abspath(self.store_dir)}] incorrect: No such directory, Now create it')
             os.makedirs(os.path.abspath(self.store_dir))
 
         if not self.is_scene:
@@ -180,7 +167,7 @@ class GatherComponentLogHandler(BaseShellHandler):
             if not os.path.exists(self.store_dir):
                 os.makedirs(self.store_dir)
 
-        self.stdio.verbose("store_dir rebase: {0}".format(self.store_dir))
+        self._log_verbose(f"store_dir rebase: {self.store_dir}")
 
     def __check_nodes(self):
         """Validate and get nodes configuration"""
@@ -254,12 +241,12 @@ class GatherComponentLogHandler(BaseShellHandler):
     def __print_time_range_info(self):
         """Print time range information"""
         if self.recent_count > 0:
-            self.stdio.print('gather log with recent_count: {0} (most recent {0} files per log type)'.format(self.recent_count))
+            self._log_info(f'gather log with recent_count: {self.recent_count} (most recent {self.recent_count} files per log type)')
         else:
             # Only show default message when no time options are provided at all
             if self.from_option is None and self.to_option is None and self.since_option is None:
-                self.stdio.print('No time option provided, default processing is based on the last {0} minutes'.format(self.DEFAULT_SINCE_MINUTES))
-            self.stdio.print('gather log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
+                self._log_info(f'No time option provided, default processing is based on the last {self.DEFAULT_SINCE_MINUTES} minutes')
+            self._log_info(f'gather log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
 
     def __check_redact(self):
         """Validate redact option"""
@@ -271,34 +258,47 @@ class GatherComponentLogHandler(BaseShellHandler):
 
     def __check_inner_config(self):
         """Load configuration from inner_config"""
-        if self.inner_config is None:
-            self.file_number_limit = self.DEFAULT_FILE_NUMBER_LIMIT
-            self.file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
-            self.config_path = None
+        # Use ConfigAccessor if available
+        if self.config:
+            self.file_number_limit = self.config.gather_file_number_limit
+            self.file_size_limit = self.config.gather_file_size_limit
+            self.config_path = self.config.config_path
         else:
-            basic_config = self.inner_config.get('obdiag', {}).get('basic', {})
-            self.file_number_limit = int(basic_config.get("file_number_limit", self.DEFAULT_FILE_NUMBER_LIMIT))
-            file_size_limit_str = basic_config.get("file_size_limit")
-            if file_size_limit_str:
-                self.file_size_limit = int(FileUtil.size(file_size_limit_str))
-            else:
+            # Fallback to direct config access
+            if self.context.inner_config is None:
+                self.file_number_limit = self.DEFAULT_FILE_NUMBER_LIMIT
                 self.file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
-            self.config_path = basic_config.get('config_path')
+                self.config_path = None
+            else:
+                basic_config = self.context.inner_config.get('obdiag', {}).get('basic', {})
+                self.file_number_limit = int(basic_config.get("file_number_limit", self.DEFAULT_FILE_NUMBER_LIMIT))
+                file_size_limit_str = basic_config.get("file_size_limit")
+                if file_size_limit_str:
+                    self.file_size_limit = int(FileUtil.size(file_size_limit_str))
+                else:
+                    self.file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
+                self.config_path = basic_config.get('config_path')
 
-        self.stdio.verbose("file_number_limit: {0}, file_size_limit: {1}".format(self.file_number_limit, self.file_size_limit))
+        self._log_verbose(f"file_number_limit: {self.file_number_limit}, file_size_limit: {self.file_size_limit}")
 
     def __check_thread_nums(self):
         """Validate thread_nums option"""
         if self.thread_nums is None or not isinstance(self.thread_nums, int) or self.thread_nums <= 0:
-            # Safely get thread_nums from config, handle None inner_config
-            config_thread_nums = None
-            if self.inner_config:
-                config_thread_nums = self.inner_config.get("obdiag", {}).get("gather", {}).get("thread_nums")
-            self.thread_nums = int(config_thread_nums) if config_thread_nums else self.DEFAULT_THREAD_NUMS
-        self.stdio.verbose("thread_nums: {0}".format(self.thread_nums))
+            # Use ConfigAccessor if available
+            if self.config:
+                self.thread_nums = self.config.gather_thread_nums
+            else:
+                # Fallback to direct config access
+                config_thread_nums = None
+                if self.context.inner_config:
+                    config_thread_nums = self.context.inner_config.get("obdiag", {}).get("gather", {}).get("thread_nums")
+                self.thread_nums = int(config_thread_nums) if config_thread_nums else self.DEFAULT_THREAD_NUMS
+        self._log_verbose(f"thread_nums: {self.thread_nums}")
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
         """Main handle logic"""
+        self._validate_initialized()
+
         try:
             if not self.result.is_success():
                 return self.result
@@ -331,27 +331,27 @@ class GatherComponentLogHandler(BaseShellHandler):
                 for task in tasks:
                     self.gather_tuples.append(task.get_result())
 
-                self.stdio.verbose("gather_tuples: {0}".format(self.gather_tuples))
+                self._log_verbose(f"gather_tuples: {self.gather_tuples}")
                 summary_tuples = self.__get_overall_summary(self.gather_tuples)
-                self.stdio.print(summary_tuples)
+                self._log_info(summary_tuples)
 
                 with open(os.path.join(self.store_dir, "result_summary.txt"), 'a', encoding='utf-8') as fileobj:
                     fileobj.write(summary_tuples.get_string())
 
             except Exception as e:
                 self.stdio.exception(e)
-                self.stdio.verbose("gather log error: {0}".format(e))
+                self._log_verbose(f"gather log error: {e}")
                 self.stdio.stop_loading("failed")
-                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="gather log error: {0}".format(str(e)))
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"gather log error: {str(e)}")
             else:
                 self.stdio.stop_loading("succeed")
 
             # Check result
             if os.path.exists(os.path.join(self.store_dir, "result_summary.txt")):
-                last_info = "For result details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(self.store_dir, "result_summary.txt"))
-                self.stdio.print(last_info)
+                last_info = f"For result details, please run cmd \033[32m' cat {os.path.join(self.store_dir, 'result_summary.txt')} '\033[0m\n"
+                self._log_info(last_info)
             else:
-                self.stdio.warn("No log file is gathered, please check the gather log config")
+                self._log_warn("No log file is gathered, please check the gather log config")
                 return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="gather log failed, please check the gather log config or check obdiag log")
 
             # Handle redact if specified
@@ -361,9 +361,8 @@ class GatherComponentLogHandler(BaseShellHandler):
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.store_dir})
 
         except Exception as e:
-            self.stdio.verbose(traceback.format_exc())
-            self.stdio.error("gather log failed: {0}".format(str(e)))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="gather log failed: {0}".format(str(e)))
+            self._log_verbose(traceback.format_exc())
+            return self._handle_error(e)
 
     def __clear_node_ssh_client(self, node):
         """Remove ssh_client from node dict (will be rebuilt in handler)"""
@@ -386,31 +385,30 @@ class GatherComponentLogHandler(BaseShellHandler):
             file_thread.start()
             file_queue.append(file_thread)
 
-        self.stdio.verbose("file_queue len: {0}".format(len(file_queue)))
+        self._log_verbose(f"file_queue len: {len(file_queue)}")
 
         for task_thread in file_queue:
             task_thread.join()
 
-        self.stdio.verbose("all tasks finished")
+        self._log_verbose("all tasks finished")
 
     def __handle_redact(self):
         """Handle redact processing"""
         self.stdio.start_loading("gather redact start")
         try:
-            self.stdio.verbose("redact_option is {0}".format(self.redact))
-            redact_dir = "{0}_redact".format(self.store_dir)
+            self._log_verbose(f"redact_option is {self.redact}")
+            redact_dir = f"{self.store_dir}_redact"
             self.redact_dir = redact_dir
             all_files = self.open_all_file()
-            self.stdio.verbose(all_files)
+            self._log_verbose(str(all_files))
             redact = Redact(self.context, self.store_dir, redact_dir)
             redact.redact_files(self.redact, all_files)
-            self.stdio.print("redact success the log save on {0}".format(self.redact_dir))
+            self._log_info(f"redact success the log save on {self.redact_dir}")
             self.__delete_all_files_in_tar()
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": redact_dir, "redact_dir": self.redact_dir})
         except Exception as e:
             self.stdio.exception(e)
-            self.stdio.error("redact failed {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="redact failed {0}".format(e))
+            return self._handle_error(e)
         finally:
             self.stdio.stop_loading("succeed")
 
@@ -418,15 +416,15 @@ class GatherComponentLogHandler(BaseShellHandler):
         """Generate overall summary from all node summary tuples"""
         summary_tb = PrettyTable()
         summary_tb.title = "Gather {0} Log Summary on {1}".format(self.target, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        self.stdio.verbose("node_summary_tuple: {0}".format(node_summary_tuple))
+        self._log_verbose(f"node_summary_tuple: {node_summary_tuple}")
         summary_tb.field_names = ["Node", "Status", "Size", "info"]
 
         try:
             for tup in node_summary_tuple:
                 summary_tb.add_row([tup["node"], tup["success"], tup["file_size"], tup["info"]])
         except Exception as e:
-            self.stdio.verbose(traceback.format_exc())
-            self.stdio.error("gather log __get_overall_summary failed: {0}".format(str(e)))
+            self._log_verbose(traceback.format_exc())
+            self._log_error(f"gather log __get_overall_summary failed: {str(e)}")
 
         return summary_tb
 
@@ -438,12 +436,12 @@ class GatherComponentLogHandler(BaseShellHandler):
 
         for tup in self.gather_tuples:
             if not tup["file_path"] or len(tup["file_path"]) == 0 or not os.path.exists(tup["file_path"]):
-                self.stdio.verbose("file_path is None or not exists, can't open file")
+                self._log_verbose("file_path is None or not exists, can't open file")
                 continue
 
             try:
                 file_path = tup["file_path"]
-                self.stdio.verbose("open file {0}".format(tup["file_path"]))
+                self._log_verbose(f"open file {tup['file_path']}")
                 extract_path = os.path.dirname(file_path)
 
                 with tarfile.open(file_path, 'r:gz') as tar:

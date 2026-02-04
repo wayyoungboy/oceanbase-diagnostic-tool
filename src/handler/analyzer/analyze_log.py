@@ -23,8 +23,8 @@ import tarfile
 
 import tabulate
 
+from src.common.base_handler import BaseHandler
 from src.common.ssh_client.local_client import LocalClient
-from src.handler.base_shell_handler import BaseShellHandler
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.constant import const
 from src.common.command import download_file
@@ -38,11 +38,9 @@ from src.common.result_type import ObdiagResult
 from src.handler.gather.gather_component_log import GatherComponentLogHandler
 
 
-class AnalyzeLogHandler(BaseShellHandler):
-    def __init__(self, context):
-        super(AnalyzeLogHandler, self).__init__()
-        self.context = context
-        self.stdio = context.stdio
+class AnalyzeLogHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.directly_analyze_files = False
         self.analyze_files_list = []
         self.is_ssh = True
@@ -60,34 +58,42 @@ class AnalyzeLogHandler(BaseShellHandler):
         self.by_tenant = True  # Default: enable tenant statistics
         self.tenant_id_filter = None  # If specified, only analyze this tenant
 
-    def init_config(self):
+        # Initialize config
         self.nodes = self.context.cluster_config['servers']
-        self.inner_config = self.context.inner_config
-        if self.inner_config is None:
-            self.file_number_limit = 20
-            self.file_size_limit = 2 * 1024 * 1024 * 1024
-        else:
-            basic_config = self.inner_config['obdiag']['basic']
-            self.file_number_limit = int(basic_config["file_number_limit"])
-            self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
-            self.config_path = basic_config['config_path']
-        return True
 
-    def init_option(self):
+        # Use ConfigAccessor if available
+        if self.config:
+            self.file_number_limit = self.config.gather_file_number_limit
+            self.file_size_limit = self.config.gather_file_size_limit
+            self.config_path = self.config.config_path
+        else:
+            # Fallback to direct config access
+            if self.context.inner_config is None:
+                self.file_number_limit = 20
+                self.file_size_limit = 2 * 1024 * 1024 * 1024
+            else:
+                basic_config = self.context.inner_config['obdiag']['basic']
+                self.file_number_limit = int(basic_config["file_number_limit"])
+                self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
+                self.config_path = basic_config['config_path']
+
+        # Initialize options
         options = self.context.options
-        from_option = Util.get_option(options, 'from')
-        to_option = Util.get_option(options, 'to')
-        since_option = Util.get_option(options, 'since')
-        store_dir_option = Util.get_option(options, 'store_dir')
-        grep_option = Util.get_option(options, 'grep')
-        scope_option = Util.get_option(options, 'scope')
-        log_level_option = Util.get_option(options, 'log_level')
-        files_option = Util.get_option(options, 'files')
-        temp_dir_option = Util.get_option(options, 'temp_dir')
+        from_option = self._get_option('from')
+        to_option = self._get_option('to')
+        since_option = self._get_option('since')
+        store_dir_option = self._get_option('store_dir')
+        grep_option = self._get_option('grep')
+        scope_option = self._get_option('scope')
+        log_level_option = self._get_option('log_level')
+        files_option = self._get_option('files')
+        temp_dir_option = self._get_option('temp_dir')
+
         if files_option:
             self.is_ssh = False
             self.directly_analyze_files = True
             self.analyze_files_list = files_option
+
         if from_option is not None and to_option is not None:
             try:
                 from_timestamp = TimeUtils.parse_time_str(from_option)
@@ -95,19 +101,19 @@ class AnalyzeLogHandler(BaseShellHandler):
                 self.from_time_str = from_option
                 self.to_time_str = to_option
             except OBDIAGFormatException:
-                self.stdio.exception('Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={0}, to_datetime={1}'.format(from_option, to_option))
-                return False
+                self._log_error(f'Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={from_option}, to_datetime={to_option}')
+                raise
             if to_timestamp <= from_timestamp:
-                self.stdio.exception('Error: from datetime is larger than to datetime, please check.')
-                return False
+                self._log_error('Error: from datetime is larger than to datetime, please check.')
+                raise ValueError('from datetime is larger than to datetime')
         elif (from_option is None or to_option is None) and since_option is not None:
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
             if not self.directly_analyze_files:
-                self.stdio.print('analyze log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
+                self._log_info(f'analyze log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
         else:
-            self.stdio.print('No time option provided, default processing is based on the last 30 minutes')
+            self._log_info('No time option provided, default processing is based on the last 30 minutes')
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             if since_option is not None:
@@ -115,12 +121,14 @@ class AnalyzeLogHandler(BaseShellHandler):
             else:
                 self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
             if not self.directly_analyze_files:
-                self.stdio.print('analyze log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
+                self._log_info(f'analyze log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+
         if store_dir_option is not None:
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.gather_pack_dir = os.path.abspath(store_dir_option)
+
         if grep_option is not None:
             self.grep_args = grep_option
         if scope_option:
@@ -129,75 +137,76 @@ class AnalyzeLogHandler(BaseShellHandler):
             self.log_level = OBLogLevel().get_log_level(log_level_option)
         if temp_dir_option:
             self.gather_ob_log_temporary_dir = temp_dir_option
-        tenant_id_option = Util.get_option(options, 'tenant_id')
+
+        tenant_id_option = self._get_option('tenant_id')
         if tenant_id_option is not None:
             self.tenant_id_filter = tenant_id_option.strip()
-            self.stdio.verbose("tenant_id filter: {0}".format(self.tenant_id_filter))
-        return True
+            self._log_verbose(f"tenant_id filter: {self.tenant_id_filter}")
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        self.stdio.print("analyze nodes's log start. Please wait a moment...")
-        self.stdio.print('analyze start')
-        local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
-        self.stdio.verbose("Use {0} as pack dir.".format(local_store_parent_dir))
-        analyze_tuples = []
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-        # When --files is not specified: use GatherComponentLogHandler to collect logs (compressed) first, then analyze locally
-        if not self.directly_analyze_files:
-            return self.__handle_with_gather(local_store_parent_dir)
+        try:
+            self._log_info("analyze nodes's log start. Please wait a moment...")
+            self._log_info('analyze start')
+            local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
+            self._log_verbose(f"Use {local_store_parent_dir} as pack dir.")
+            analyze_tuples = []
 
-        # --files specified: analyze local files only (no SSH)
-        DirectoryUtil.mkdir(path=local_store_parent_dir, stdio=self.stdio)
-        self.stdio.print("analyze nodes's log start. Please wait a moment...")
-        self.stdio.start_loading('analyze start')
-        resp, node_results, tenant_results_list = self.__handle_offline(local_store_parent_dir)
-        analyze_tuples = [("127.0.0.1", False, resp["error"], node_results)]
-        title, field_names, summary_list, summary_details_list = self.__get_overall_summary(analyze_tuples, True)
-        analyze_info_nodes = []
-        for summary in summary_list:
-            analyze_info_node = {}
-            field_names_nu = 0
-            for m in field_names:
-                analyze_info_node[m] = summary[field_names_nu]
-                field_names_nu += 1
-                if field_names_nu == len(summary):
-                    break
-            analyze_info_nodes.append(analyze_info_node)
-        table = tabulate.tabulate(summary_list, headers=field_names, tablefmt="grid", showindex=False)
-        self.stdio.stop_loading('analyze result success')
-        self.stdio.print(title)
-        self.stdio.print(table)
-        with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-            fileobj.write(u'{}'.format(title + str(table) + "\n\nDetails:\n\n"))
-        # build summary details
-        summary_details_list_data = []
-        for m in range(len(summary_details_list)):
-            summary_details_list_data_once = {}
-            for n in range(len(field_names)):
-                extend = "\n\n" if n == len(field_names) - 1 else "\n"
-                with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-                    fileobj.write(u'{}'.format(field_names[n] + ": " + str(summary_details_list[m][n]) + extend))
-                summary_details_list_data_once[field_names[n]] = str(summary_details_list[m][n])
-            summary_details_list_data.append(summary_details_list_data_once)
-        if self.by_tenant and tenant_results_list:
-            tenant_title, tenant_field_names, tenant_summary_list = self.__get_tenant_summary(tenant_results_list)
-            if tenant_summary_list:
-                tenant_table = tabulate.tabulate(tenant_summary_list, headers=tenant_field_names, tablefmt="grid", showindex=False)
-                self.stdio.print(tenant_title)
-                self.stdio.print(tenant_table)
-                with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-                    fileobj.write(u'{}'.format(tenant_title + str(tenant_table) + "\n\n"))
-            elif self.tenant_id_filter:
-                self.stdio.warn("No errors found for tenant: {0}".format(self.tenant_id_filter))
-        last_info = "For more details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(local_store_parent_dir, "result_details.txt"))
-        self.stdio.print(last_info)
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": analyze_info_nodes, "summary_details_list": summary_details_list_data, "store_dir": local_store_parent_dir})
+            # When --files is not specified: use GatherComponentLogHandler to collect logs (compressed) first, then analyze locally
+            if not self.directly_analyze_files:
+                return self.__handle_with_gather(local_store_parent_dir)
+
+            # --files specified: analyze local files only (no SSH)
+            DirectoryUtil.mkdir(path=local_store_parent_dir, stdio=self.stdio)
+            self._log_info("analyze nodes's log start. Please wait a moment...")
+            self.stdio.start_loading('analyze start')
+            resp, node_results, tenant_results_list = self.__handle_offline(local_store_parent_dir)
+            analyze_tuples = [("127.0.0.1", False, resp["error"], node_results)]
+            title, field_names, summary_list, summary_details_list = self.__get_overall_summary(analyze_tuples, True)
+            analyze_info_nodes = []
+            for summary in summary_list:
+                analyze_info_node = {}
+                field_names_nu = 0
+                for m in field_names:
+                    analyze_info_node[m] = summary[field_names_nu]
+                    field_names_nu += 1
+                    if field_names_nu == len(summary):
+                        break
+                analyze_info_nodes.append(analyze_info_node)
+            table = tabulate.tabulate(summary_list, headers=field_names, tablefmt="grid", showindex=False)
+            self.stdio.stop_loading('analyze result success')
+            self.stdio.print(title)
+            self.stdio.print(table)
+            with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
+                fileobj.write(u'{}'.format(title + str(table) + "\n\nDetails:\n\n"))
+            # build summary details
+            summary_details_list_data = []
+            for m in range(len(summary_details_list)):
+                summary_details_list_data_once = {}
+                for n in range(len(field_names)):
+                    extend = "\n\n" if n == len(field_names) - 1 else "\n"
+                    with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
+                        fileobj.write(u'{}'.format(field_names[n] + ": " + str(summary_details_list[m][n]) + extend))
+                    summary_details_list_data_once[field_names[n]] = str(summary_details_list[m][n])
+                summary_details_list_data.append(summary_details_list_data_once)
+            if self.by_tenant and tenant_results_list:
+                tenant_title, tenant_field_names, tenant_summary_list = self.__get_tenant_summary(tenant_results_list)
+                if tenant_summary_list:
+                    tenant_table = tabulate.tabulate(tenant_summary_list, headers=tenant_field_names, tablefmt="grid", showindex=False)
+                    self.stdio.print(tenant_title)
+                    self.stdio.print(tenant_table)
+                    with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
+                        fileobj.write(u'{}'.format(tenant_title + str(tenant_table) + "\n\n"))
+                elif self.tenant_id_filter:
+                    self.stdio.warn("No errors found for tenant: {0}".format(self.tenant_id_filter))
+            last_info = "For more details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(local_store_parent_dir, "result_details.txt"))
+            self.stdio.print(last_info)
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": analyze_info_nodes, "summary_details_list": summary_details_list_data, "store_dir": local_store_parent_dir})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def __handle_with_gather(self, local_store_parent_dir):
         """
@@ -208,7 +217,7 @@ class AnalyzeLogHandler(BaseShellHandler):
         gather_store_dir = os.path.join(local_store_parent_dir, "gathered_logs")
         DirectoryUtil.mkdir(path=gather_store_dir, stdio=self.stdio)
 
-        self.stdio.print("gather log (compressed) start, then analyze locally...")
+        self._log_info("gather log (compressed) start, then analyze locally...")
         self.stdio.start_loading("gather log start")
         handler = GatherComponentLogHandler()
         handler.init(
@@ -227,22 +236,22 @@ class AnalyzeLogHandler(BaseShellHandler):
         self.stdio.stop_loading("gather succeed" if gather_result.is_success() else "gather failed")
 
         if not gather_result.is_success():
-            self.stdio.error("gather log failed: {0}".format(gather_result.error_data))
+            self._log_error(f"gather log failed: {gather_result.error_data}")
             return gather_result
 
         tar_files = glob.glob(os.path.join(gather_store_dir, "*.tar.gz"))
         if not tar_files:
-            self.stdio.warn("No tar.gz files found in gather result dir: {0}".format(gather_store_dir))
+            self._log_warn(f"No tar.gz files found in gather result dir: {gather_store_dir}")
             return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="No log tar files gathered, please check gather config or time range")
 
-        self.stdio.verbose("extract {0} tar file(s) to local".format(len(tar_files)))
+        self._log_verbose(f"extract {len(tar_files)} tar file(s) to local")
         for tar_path in tar_files:
             try:
                 with tarfile.open(tar_path, 'r:gz') as tar:
                     tar.extractall(path=local_store_parent_dir)
             except Exception as e:
-                self.stdio.exception("extract tar failed: {0}, error: {1}".format(tar_path, e))
-                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="extract gather tar failed: {0}".format(str(e)))
+                self.stdio.exception(f"extract tar failed: {tar_path}, error: {e}")
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"extract gather tar failed: {str(e)}")
 
         analyze_tuples = []
         tenant_results_list = []
@@ -261,7 +270,7 @@ class AnalyzeLogHandler(BaseShellHandler):
                     node_results.append(file_result)
                     tenant_results_list.append(tenant_result)
                 except Exception as e:
-                    self.stdio.verbose("parse log file {0} failed: {1}".format(full_path, e))
+                    self._log_verbose(f"parse log file {full_path} failed: {e}")
             analyze_tuples.append((node_name, False, "", node_results))
 
         self.stdio.stop_loading("succeed")

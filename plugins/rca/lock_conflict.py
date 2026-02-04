@@ -117,7 +117,7 @@ class LockConflictScene(RcaScene):
         data_trans_id_value = None
         for log_name in logs_name:
             try:
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "data_trans_id" in line:
@@ -166,7 +166,7 @@ class LockConflictScene(RcaScene):
         conflict_tx_id_value = None
         for log_name in logs_name:
             try:
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "conflict_tx_id" in line:

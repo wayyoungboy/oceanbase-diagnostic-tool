@@ -26,84 +26,140 @@ from src.common.tool import DirectoryUtil
 from src.common.tool import FileUtil
 from src.common.tool import Util
 from src.common.tool import TimeUtils
+from src.common.base_handler import BaseHandler
 from src.common.ocp import ocp_api
 from src.common.ocp import ocp_task
 from src.common.result_type import ObdiagResult
 
 
-class GatherAwrHandler(object):
-    def __init__(self, context, gather_pack_dir='./'):
-        self.context = context
-        self.stdio = context.stdio
+class GatherAwrHandler(BaseHandler):
+    def _init(self, gather_pack_dir='./', **kwargs):
+        """Subclass initialization"""
         self.gather_pack_dir = gather_pack_dir
         self.cluster_name = None
         self.cluster_id = None
+
         if self.context.get_variable("gather_timestamp", None):
             self.gather_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
 
-    def init_config(self):
+        # Initialize config
         ocp = self.context.ocp_config
         self.ocp_user = ocp["user"]
         self.ocp_password = ocp["password"]
         self.ocp_url = ocp["url"]
         self.auth = (self.ocp_user, self.ocp_password)
-        return True
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return False
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return False
-        # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
-        pack_dir_this_command = os.path.join(self.gather_pack_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
-        self.stdio.verbose("Use {0} as pack dir.".format(pack_dir_this_command))
-        DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
-        gather_tuples = []
-        gather_pack_path_dict = {}
+        # Initialize options
+        cluster_name_option = self._get_option('cluster_name')
+        if cluster_name_option:
+            self.cluster_name = cluster_name_option
+        else:
+            raise ValueError("--cluster_name option need provided")
 
-        def handle_awr_from_ocp(ocp_url, cluster_name):
-            """
-            handler awr from ocp
-            :param args: ocp url, ob cluster name, command args
-            :return:
-            """
-            st = time.time()
-            # step 1: generate awr report
-            self.stdio.start_loading('generate awr report')
-            report_name = self.__generate_awr_report()
-            if report_name:
-                self.stdio.stop_loading('generate awr report sucess')
-            else:
-                self.stdio.stop_loading('generate awr failed')
-                return
+        cluster_id_option = self._get_option('cluster_id')
+        if cluster_id_option:
+            self.cluster_id = cluster_id_option
+        else:
+            raise ValueError("--cluster_id option need provided")
 
-            # step 2: get awr report_id
-            report_id = self.__get_awr_report_id(report_name)
+        store_dir_option = self._get_option('store_dir')
+        from_option = self._get_option('from')
+        to_option = self._get_option('to')
+        since_option = self._get_option('since')
 
-            # step 3: hand gather report from ocp
-            resp = self.__download_report(pack_dir_this_command, report_name, report_id)
-            if resp["skip"]:
-                return
-            if resp["error"]:
-                gather_tuples.append((ocp_url, True, resp["error_msg"], 0, int(time.time() - st), "Error:{0}".format(resp["error_msg"]), ""))
-                return
-            gather_pack_path_dict[(cluster_name, ocp_url)] = resp["gather_pack_path"]
-            gather_tuples.append((cluster_name, False, "", os.path.getsize(resp["gather_pack_path"]), int(time.time() - st), resp["gather_pack_path"]))
+        if from_option is not None and to_option is not None:
+            try:
+                self.from_time_str = from_option
+                self.to_time_str = to_option
+                from_timestamp = TimeUtils.datetime_to_timestamp(from_option)
+                to_timestamp = TimeUtils.datetime_to_timestamp(to_option)
+            except OBDIAGFormatException:
+                raise ValueError(f"Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={from_option}, to_datetime={to_option}")
+            if to_timestamp <= from_timestamp:
+                raise ValueError("Error: from datetime is larger than to datetime, please check.")
+            self._log_info(f'gather log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+        elif (from_option is None or to_option is None) and since_option is not None:
+            # the format of since must be 'n'<m|h|d>
+            try:
+                since_to_seconds = TimeUtils.parse_time_length_to_sec(since_option)
+            except ValueError:
+                raise ValueError("Error: the format of since must be 'n'<m|h|d>")
+            now_time = datetime.datetime.now()
+            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
+            if since_to_seconds < 3 * 3600:
+                self._log_warn('The --since requires a value greater than 3h. your provided is less than 3h, adjusted to 3h.')
+                since_to_seconds = 3 * 3600
+            self.from_time_str = (now_time - datetime.timedelta(seconds=since_to_seconds)).strftime('%Y-%m-%d %H:%M:%S')
+            self._log_info(f'gather log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+        else:
+            self._log_warn('No time option provided, default processing is based on the last 3 h')
+            now_time = datetime.datetime.now()
+            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
+            self.from_time_str = (now_time - datetime.timedelta(seconds=3 * 3600)).strftime('%Y-%m-%d %H:%M:%S')
+            self._log_info(f'gather log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
 
-        ocp_threads = [threading.Thread(None, handle_awr_from_ocp(self.ocp_url, self.cluster_name), args=())]
-        list(map(lambda x: x.start(), ocp_threads))
-        list(map(lambda x: x.join(), ocp_threads))
-        summary_tuples = self.__get_overall_summary(gather_tuples)
-        self.stdio.print(summary_tuples)
-        # 将汇总结果持久化记录到文件中
-        FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
+        if store_dir_option and store_dir_option != "./":
+            if not os.path.exists(os.path.abspath(store_dir_option)):
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
+                os.makedirs(os.path.abspath(store_dir_option))
+            self.gather_pack_dir = os.path.abspath(store_dir_option)
 
-        # return gather_tuples, gather_pack_path_dict
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
+            pack_dir_this_command = os.path.join(self.gather_pack_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
+            self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
+            DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
+            gather_tuples = []
+            gather_pack_path_dict = {}
+
+            def handle_awr_from_ocp(ocp_url, cluster_name):
+                """
+                handler awr from ocp
+                :param args: ocp url, ob cluster name, command args
+                :return:
+                """
+                st = time.time()
+                # step 1: generate awr report
+                self.stdio.start_loading('generate awr report')
+                report_name = self.__generate_awr_report()
+                if report_name:
+                    self.stdio.stop_loading('generate awr report sucess')
+                else:
+                    self.stdio.stop_loading('generate awr failed')
+                    return
+
+                # step 2: get awr report_id
+                report_id = self.__get_awr_report_id(report_name)
+
+                # step 3: hand gather report from ocp
+                resp = self.__download_report(pack_dir_this_command, report_name, report_id)
+                if resp["skip"]:
+                    return
+                if resp["error"]:
+                    gather_tuples.append((ocp_url, True, resp["error_msg"], 0, int(time.time() - st), f"Error:{resp['error_msg']}", ""))
+                    return
+                gather_pack_path_dict[(cluster_name, ocp_url)] = resp["gather_pack_path"]
+                gather_tuples.append((cluster_name, False, "", os.path.getsize(resp["gather_pack_path"]), int(time.time() - st), resp["gather_pack_path"]))
+
+            ocp_threads = [threading.Thread(None, handle_awr_from_ocp(self.ocp_url, self.cluster_name), args=())]
+            list(map(lambda x: x.start(), ocp_threads))
+            list(map(lambda x: x.join(), ocp_threads))
+            summary_tuples = self.__get_overall_summary(gather_tuples)
+            self._log_info(summary_tuples)
+            # 将汇总结果持久化记录到文件中
+            FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
+
+            # return gather_tuples, gather_pack_path_dict
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def __download_report(self, store_path, name, report_id):
         """
@@ -117,14 +173,14 @@ class GatherAwrHandler(object):
             "error": False,
         }
 
-        self.stdio.verbose("Sending Status Request to cluster {0} ...".format(self.cluster_name))
+        self._log_verbose(f"Sending Status Request to cluster {self.cluster_name} ...")
 
         path = ocp_api.cluster + "/%s/performance/workload/reports/%s" % (self.cluster_id, report_id)
         save_path = os.path.join(store_path, name + ".html")
         self.stdio.start_loading('download AWR report')
         pack_path = self.download(self.ocp_url + path, save_path, self.auth)
         self.stdio.stop_loading('download AWR report')
-        self.stdio.verbose("cluster {0} response. analysing...".format(self.cluster_name))
+        self._log_verbose(f"cluster {self.cluster_name} response. analysing...")
 
         resp["gather_pack_path"] = pack_path
         if resp["error"]:
@@ -144,7 +200,7 @@ class GatherAwrHandler(object):
         """
         snapshot_list = self.__get_snapshot_list()
         if len(snapshot_list) <= 1:
-            self.stdio.warn("AWR report at least need 2 snapshot, cluster now only have %s, please adjusted to --from/to or --since", len(snapshot_list))
+            self._log_warn(f"AWR report at least need 2 snapshot, cluster now only have {len(snapshot_list)}, please adjusted to --from/to or --since")
             return None
         else:
             start_sid, start_time = snapshot_list[0]
@@ -197,14 +253,14 @@ class GatherAwrHandler(object):
                     if from_datetime_timestamp <= snapshot_time <= to_datetime_timestamp:
                         snapshot_id_list.append((info["snapshotId"], info["snapshotTime"]))
                 except KeyError:
-                    self.stdio.error(f"Malformed snapshot data: {info}")
+                    self._log_error(f"Malformed snapshot data: {info}")
                     continue
                 except Exception as e:
                     continue
         except requests.exceptions.RequestException as e:
-            self.stdio.error(f"Failed to fetch snapshot list from OCP: {e}")
+            self._log_error(f"Failed to fetch snapshot list from OCP: {e}")
             return []
-        self.stdio.verbose(f"Retrieved snapshot list: {snapshot_id_list}")
+        self._log_verbose(f"Retrieved snapshot list: {snapshot_id_list}")
         return snapshot_id_list
 
     def __get_awr_report_id(self, report_name):
@@ -219,64 +275,6 @@ class GatherAwrHandler(object):
             if info["name"] == report_name:
                 return info["id"]
         return 0
-
-    def init_option(self):
-        options = self.context.options
-        store_dir_option = Util.get_option(options, 'store_dir')
-        from_option = Util.get_option(options, 'from')
-        to_option = Util.get_option(options, 'to')
-        since_option = Util.get_option(options, 'since')
-        cluster_name_option = Util.get_option(options, 'cluster_name')
-        if cluster_name_option:
-            self.cluster_name = cluster_name_option
-        else:
-            self.stdio.error("--cluster_name option need provided")
-            return False
-        cluster_id_option = Util.get_option(options, 'cluster_id')
-        if cluster_id_option:
-            self.cluster_id = cluster_id_option
-        else:
-            self.stdio.error("--cluster_id option need provided")
-            return False
-        if from_option is not None and to_option is not None:
-            try:
-                self.from_time_str = from_option
-                self.to_time_str = to_option
-                from_timestamp = TimeUtils.datetime_to_timestamp(from_option)
-                to_timestamp = TimeUtils.datetime_to_timestamp(to_option)
-            except OBDIAGFormatException:
-                self.stdio.error("Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. " "from_datetime={0}, to_datetime={1}".format(from_option, to_option))
-                return False
-            if to_timestamp <= from_timestamp:
-                self.stdio.error("Error: from datetime is larger than to datetime, please check.")
-                return False
-            self.stdio.print('gather log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
-        elif (from_option is None or to_option is None) and since_option is not None:
-            # the format of since must be 'n'<m|h|d>
-            try:
-                since_to_seconds = TimeUtils.parse_time_length_to_sec(since_option)
-            except ValueError:
-                self.stdio.error("Error: the format of since must be 'n'<m|h|d>")
-                return False
-            now_time = datetime.datetime.now()
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
-            if since_to_seconds < 3 * 3600:
-                self.stdio.warn('The --since requires a value greater than 3h. your provided is less than 3h, adjusted to 3h.')
-                since_to_seconds = 3 * 3600
-            self.from_time_str = (now_time - datetime.timedelta(seconds=since_to_seconds)).strftime('%Y-%m-%d %H:%M:%S')
-            self.stdio.print('gather log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
-        else:
-            self.stdio.warn('No time option provided, default processing is based on the last 3 h')
-            now_time = datetime.datetime.now()
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
-            self.from_time_str = (now_time - datetime.timedelta(seconds=3 * 3600)).strftime('%Y-%m-%d %H:%M:%S')
-            self.stdio.print('gather log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
-        if store_dir_option and store_dir_option != "./":
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.gather_pack_dir = os.path.abspath(store_dir_option)
-        return True
 
     @staticmethod
     def __get_overall_summary(node_summary_tuple):

@@ -33,7 +33,7 @@ class TransactionDisconnectionScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -84,7 +84,7 @@ class TransactionDisconnectionScene(RcaScene):
                 if check_nu == 0:
                     break
                 try:
-                    with open(log_name, "r") as f:
+                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
                         for line in lines:
                             if "session is kill" in line and "sessid_=" in line:

@@ -276,28 +276,42 @@ class ObdiagHome(object):
                 )
                 return handler.handle()
             elif function_type == 'gather_awr':
-                handler = GatherAwrHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherAwrHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_clog':
                 self.context.set_variable('gather_obadmin_mode', 'clog')
-                handler = GatherObAdminHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherObAdminHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_slog':
                 self.context.set_variable('gather_obadmin_mode', 'slog')
-                handler = GatherObAdminHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherObAdminHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_obstack':
-                handler = GatherObstack2Handler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherObstack2Handler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_perf':
-                handler = GatherPerfHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherPerfHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_plan_monitor':
-                handler = GatherPlanMonitorHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherPlanMonitorHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_all':
                 try:
-                    handler_sysstat = GatherOsInfoHandler(self.context)
+                    # Use new BaseHandler initialization pattern
+                    handler_sysstat = GatherOsInfoHandler()
+                    handler_sysstat.init(self.context)
                     handler_sysstat.handle()
                 except Exception as e:
                     self.stdio.error("gather_sysstat failed: %s", str(e))
@@ -307,7 +321,9 @@ class ObdiagHome(object):
                 except Exception as e:
                     self.stdio.error("gather_obstack failed: %s", str(e))
                 try:
-                    handler_perf = GatherPerfHandler(self.context)
+                    # Use new BaseHandler initialization pattern
+                    handler_perf = GatherPerfHandler()
+                    handler_perf.init(self.context)
                     handler_perf.handle()
                 except Exception as e:
                     self.stdio.error("gather_perf failed: %s", str(e))
@@ -347,28 +363,44 @@ class ObdiagHome(object):
                     self.stdio.error("gather_obproxy failed: %s", str(e))
 
             elif function_type == 'gather_sysstat':
-                handler = GatherOsInfoHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherOsInfoHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_scenes_run':
-                handler = GatherSceneHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherSceneHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_ash_report':
-                handler = GatherAshReportHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherAshReportHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_tabledump':
-                handler = GatherTableDumpHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherTableDumpHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_parameters':
-                handler = GatherParametersHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherParametersHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_variables':
-                handler = GatherVariablesHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherVariablesHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_dbms_xplan':
-                handler = GatherDBMSXPLANHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherDBMSXPLANHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'gather_core':
-                handler = GatherCoreHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = GatherCoreHandler()
+                handler.init(self.context)
                 return handler.handle()
             else:
                 self._call_stdio('error', 'Not support gather function: {0}'.format(function_type))
@@ -441,7 +473,9 @@ class ObdiagHome(object):
             timestamp = TimeUtils.get_current_us_timestamp()
             self.context.set_variable('display_timestamp', timestamp)
             if function_type == 'display_scenes_run':
-                handler = DisplaySceneHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = DisplaySceneHandler()
+                handler.init(self.context)
                 return handler.handle()
             else:
                 self._call_stdio('error', 'Not support display function: {0}'.format(function_type))
@@ -449,7 +483,9 @@ class ObdiagHome(object):
 
     def display_scenes_list(self, opt):
         self.set_offline_context('display_scenes_list', 'display')
-        handler = DisplayScenesListHandler(self.context)
+        # Use new BaseHandler initialization pattern
+        handler = DisplayScenesListHandler()
+        handler.init(self.context)
         return handler.handle()
 
     def analyze_fuction(self, function_type, opt):
@@ -463,56 +499,80 @@ class ObdiagHome(object):
                 self.set_context_stdio()
                 self.update_obcluster_nodes(config)
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeLogHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeLogHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_log_offline':
                 self.set_context_skip_cluster_conn(function_type, 'analyze', config)
-                handler = AnalyzeLogHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeLogHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_queue':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeQueueHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeQueueHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_flt_trace':
                 self.set_context_stdio()
                 self.update_obcluster_nodes(config)
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeFltTraceHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeFltTraceHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_parameter_default':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeParameterHandler(self.context, 'default')
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeParameterHandler()
+                handler.init(self.context, analyze_type='default')
                 return handler.handle()
             elif function_type == 'analyze_parameter_diff':
                 self.set_context_skip_cluster_conn(function_type, 'analyze', config)
-                handler = AnalyzeParameterHandler(self.context, 'diff')
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeParameterHandler()
+                handler.init(self.context, analyze_type='diff')
                 return handler.handle()
             elif function_type == 'analyze_variable_diff':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeVariableHandler(self.context, 'diff')
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeVariableHandler()
+                handler.init(self.context, analyze_type='diff')
                 return handler.handle()
             # todo not support silent
             elif function_type == 'analyze_sql':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeSQLHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeSQLHandler()
+                handler.init(self.context)
                 handler.handle()
             elif function_type == 'analyze_sql_review':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeSQLReviewHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeSQLReviewHandler()
+                handler.init(self.context)
                 handler.handle()
             elif function_type == 'analyze_index_space':
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeIndexSpaceHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeIndexSpaceHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_memory_offline':
                 self.set_context_skip_cluster_conn(function_type, 'analyze', config)
-                handler = AnalyzeMemoryHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeMemoryHandler()
+                handler.init(self.context)
                 return handler.handle()
             elif function_type == 'analyze_memory':
                 self.set_context_stdio()
                 self.update_obcluster_nodes(config)
                 self.set_context(function_type, 'analyze', config)
-                handler = AnalyzeMemoryHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = AnalyzeMemoryHandler()
+                handler.init(self.context)
                 return handler.handle()
             else:
                 self._call_stdio('error', 'Not support analyze function: {0}'.format(function_type))
@@ -534,20 +594,30 @@ class ObdiagHome(object):
                 result_data = {}
 
                 if self.context.obproxy_config.get("servers") is not None and len(self.context.obproxy_config.get("servers")) > 0:
-                    obproxy_check_handler = CheckHandler(self.context, check_target_type="obproxy")
+                    # Use new BaseHandler initialization pattern
+                    obproxy_check_handler = CheckHandler()
+                    obproxy_check_handler.init(self.context, check_target_type="obproxy")
                     obproxy_result = obproxy_check_handler.handle()
-                    result_data['obproxy'] = obproxy_result
+                    if isinstance(obproxy_result, ObdiagResult):
+                        result_data['obproxy'] = obproxy_result.data if obproxy_result.data else {}
+                    else:
+                        result_data['obproxy'] = obproxy_result
                 if self.context.cluster_config.get("servers") is not None and len(self.context.cluster_config.get("servers")) > 0:
-                    observer_check_handler = CheckHandler(self.context, check_target_type="observer")
+                    # Use new BaseHandler initialization pattern
+                    observer_check_handler = CheckHandler()
+                    observer_check_handler.init(self.context, check_target_type="observer")
                     observer_result = observer_check_handler.handle()
-                    result_data['observer'] = observer_result
+                    if isinstance(observer_result, ObdiagResult):
+                        result_data['observer'] = observer_result.data if observer_result.data else {}
+                    else:
+                        result_data['observer'] = observer_result
                 # when cases=build_before, obproxy_check_handler is not execute
-                if obproxy_check_handler is not None and obproxy_check_handler.report:
+                if obproxy_check_handler is not None and hasattr(obproxy_check_handler, 'report') and obproxy_check_handler.report:
                     obproxy_report_path = os.path.expanduser(obproxy_check_handler.report.get_report_path())
                     if os.path.exists(obproxy_report_path):
                         result_data['obproxy_report_path'] = os.path.abspath(obproxy_report_path)
                         self.stdio.print("Check obproxy finished. For more details, please run cmd '" + Fore.YELLOW + " cat {0} ".format(obproxy_check_handler.report.get_report_path()) + Style.RESET_ALL + "'")
-                if observer_check_handler is not None:
+                if observer_check_handler is not None and hasattr(observer_check_handler, 'report') and observer_check_handler.report:
                     observer_report_path = os.path.expanduser(observer_check_handler.report.get_report_path())
                     if os.path.exists(observer_report_path):
                         result_data['observer_report_path'] = os.path.abspath(observer_report_path)
@@ -565,7 +635,9 @@ class ObdiagHome(object):
             return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data='No such custum config')
         else:
             self.set_offline_context('check_list', 'check_list')
-            handler = CheckListHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = CheckListHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def rca_run(self, opts):
@@ -578,7 +650,9 @@ class ObdiagHome(object):
             if config.get_ob_cluster_config.get("db_host") is not None and config.get_ob_cluster_config.get("servers") is not None:
                 self.update_obcluster_nodes(config)
             try:
-                handler = RCAHandler(self.context)
+                # Use new BaseHandler initialization pattern
+                handler = RCAHandler()
+                handler.init(self.context)
                 return handler.handle()
             except Exception as e:
                 self.stdio.error("rca run Exception: {0}".format(e))
@@ -592,7 +666,9 @@ class ObdiagHome(object):
             return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data='No such custum config')
         else:
             self.set_offline_context('rca_list', 'rca_list')
-            handler = RcaScenesListHandler(context=self.context)
+            # Use new BaseHandler initialization pattern
+            handler = RcaScenesListHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def update(self, opts):
@@ -603,7 +679,9 @@ class ObdiagHome(object):
         else:
             self.stdio.print("update start ...")
             self.set_offline_context('update', 'update')
-            handler = UpdateHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = UpdateHandler()
+            handler.init(self.context)
             UpdateHandler.context = self.context
             return handler.handle()
 
@@ -614,7 +692,9 @@ class ObdiagHome(object):
             return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data='No such custum config')
         else:
             self.set_offline_context('tool_crypto_config', 'tool_crypto_config')
-            handler = CryptoConfigHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = CryptoConfigHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def tool_ai_assistant(self, opt):
@@ -626,7 +706,9 @@ class ObdiagHome(object):
             self.set_offline_context('tool_ai_assistant', 'tool_ai_assistant')
             from src.handler.ai.ai_assistant_handler import AiAssistantHandler
 
-            handler = AiAssistantHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = AiAssistantHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def tool_config_check(self, opt):
@@ -639,7 +721,9 @@ class ObdiagHome(object):
             self.set_context_skip_cluster_conn('tool_config_check', 'tool_config_check', config)
             from src.handler.tools.config_check_handler import ConfigCheckHandler
 
-            handler = ConfigCheckHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = ConfigCheckHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def tool_io_performance(self, opt):
@@ -651,7 +735,9 @@ class ObdiagHome(object):
             self.set_context('tool_io_performance', 'tool_io_performance', config)
             from src.handler.tools.io_performance_handler import IoPerformanceHandler
 
-            handler = IoPerformanceHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            handler = IoPerformanceHandler()
+            handler.init(self.context)
             return handler.handle()
 
     def config(self, opt):

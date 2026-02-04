@@ -33,7 +33,7 @@ class ReplayHoldScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -55,7 +55,7 @@ class ReplayHoldScene(RcaScene):
             self.record.add_record("start check the replay_hold scene")
             replay_hold_data_sql = "select a.svr_ip, a.svr_port, a.tenant_id, a.ls_id, b.end_scn, a.unsubmitted_log_scn, a.pending_cnt from oceanbase.__all_virtual_replay_stat a join oceanbase.__all_virtual_log_stat b on a.svr_ip=b.svr_ip and a.svr_port=b.svr_port and a.tenant_id=b.tenant_id and a.ls_id = b.ls_id and a.role='FOLLOWER'"
             self.record.add_record("check the replay_hold. by sql: " + replay_hold_data_sql)
-            replay_hold_data_start = self.__execute_sql_with_save(
+            replay_hold_data_start = self._execute_sql_with_save(
                 replay_hold_data_sql,
                 "replay_hold_data_start",
             )
@@ -81,7 +81,7 @@ class ReplayHoldScene(RcaScene):
             self.logs_name = self.gather_log.execute(save_path=log_path)
             self.record.add_record("gather log save: {0}".format(self.logs_name))
             # check "fatal error" in log
-            if self.__check_start_port_in_log():
+            if self._check_start_port_in_log():
                 self.record.add_suggest("find Unretrievable error. Please send {0} to the Oceanbase community.".format(self.work_path))
                 return
             self.record.add_suggest("No Unretrievable error found. Please send {0} to the Oceanbase community.".format(self.work_path))
@@ -92,18 +92,18 @@ class ReplayHoldScene(RcaScene):
             self.record.add_suggest("Please send {0} to the Oceanbase community.".format(self.work_path))
             self.stdio.verbose("end ReplayHoldScene execute")
 
-    def __check_start_port_in_log(self):
+    def _check_start_port_in_log(self):
         if self.logs_name is None:
             return False
         for log in self.logs_name:
-            with open(log, 'r') as f:
+            with open(log, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     if "fatal error" in line:
                         self.record.add_record("find 'fatal error' in log: {0}".format(log))
                         return True
         return False
 
-    def __execute_sql_with_save(self, sql: str, save_file_name: str):
+    def _execute_sql_with_save(self, sql: str, save_file_name: str):
         try:
             cursor = self.ob_connector.execute_sql_return_cursor_dictionary(sql)
             data = cursor.fetchall()
@@ -113,7 +113,7 @@ class ReplayHoldScene(RcaScene):
                 return []
             columns = [desc[0] for desc in cursor.description]
             data_save_path = os.path.join(self.work_path, "{}.txt".format(save_file_name))
-            with open(data_save_path, 'w') as f:
+            with open(data_save_path, 'w', encoding='utf-8') as f:
                 f.write('\t'.join(columns) + '\n')
                 for row in data:
                     line = ""

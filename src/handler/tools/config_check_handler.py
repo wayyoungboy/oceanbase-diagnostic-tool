@@ -13,10 +13,11 @@
 """
 @time: 2025/12/15
 @file: config_check_handler.py
-@desc: Handler for checking config validity including DB connection and SSH connection
+@desc: Handler for checking config validity including DB connection and SSH connection (Migrated to BaseHandler)
 """
 
 import threading
+from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
 from src.common.tool import Util
 from src.common.ob_connector import OBConnector
@@ -24,22 +25,22 @@ from src.common.ssh_client.ssh import SshClient
 from colorama import Fore, Style
 
 
-class ConfigCheckHandler:
+class ConfigCheckHandler(BaseHandler):
     """Handler for checking config validity including DB connection and SSH connection"""
 
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
-        self.options = context.options
-        self.cluster_config = context.cluster_config
-        self.obproxy_config = context.obproxy_config
+    def _init(self, **kwargs):
+        """Subclass initialization"""
+        self.cluster_config = self.context.cluster_config
+        self.obproxy_config = self.context.obproxy_config
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
         """Main handler method"""
+        self._validate_initialized()
+
         try:
-            self.stdio.print("\n" + Fore.CYAN + "=" * 70 + Style.RESET_ALL)
-            self.stdio.print(Fore.CYAN + "  obdiag Configuration Check" + Style.RESET_ALL)
-            self.stdio.print(Fore.CYAN + "=" * 70 + Style.RESET_ALL + "\n")
+            self._log_info("\n" + Fore.CYAN + "=" * 70 + Style.RESET_ALL)
+            self._log_info(Fore.CYAN + "  obdiag Configuration Check" + Style.RESET_ALL)
+            self._log_info(Fore.CYAN + "=" * 70 + Style.RESET_ALL + "\n")
 
             results = {"db_connection": None, "observer_nodes": [], "obproxy_nodes": [], "summary": {"success": 0, "failed": 0, "skipped": 0}}
 
@@ -56,13 +57,12 @@ class ConfigCheckHandler:
             self._print_summary(results)
 
             if results["summary"]["failed"] > 0:
-                return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="Configuration check found {0} failed items".format(results["summary"]["failed"]), data=results)
+                return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data=f"Configuration check found {results['summary']['failed']} failed items", data=results)
 
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data=results)
 
         except Exception as e:
-            self.stdio.error("Config check failed: {0}".format(str(e)))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=str(e))
+            return self._handle_error(e)
 
     def _check_db_connection(self, results):
         """Check database connection"""

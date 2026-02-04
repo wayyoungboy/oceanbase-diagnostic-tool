@@ -2,7 +2,7 @@
 # -*- coding: UTF-8 -*-
 # Copyright (c) 2022 OceanBase
 # OceanBase Diagnostic Tool is licensed under Mulan PSL v2.
-# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a software according to the terms and conditions of the Mulan PSL v2.
 # You may obtain a copy of Mulan PSL v2 at:
 #          http://license.coscl.org.cn/MulanPSL2
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
@@ -11,41 +11,56 @@
 # See the Mulan PSL v2 for more details.
 
 """
-@time: 2024/12/29
-@file: check_list.py
-@desc: Handler for listing available check tasks (Migrated to BaseHandler)
+@time: 2026/02/03
+@file: check_list_refactored.py
+@desc: Refactored CheckListHandler using new BaseHandler architecture
 """
 
 import os
 import yaml
-
 from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
 from src.common.tool import Util, DynamicLoading
 
 
-class CheckListHandler(BaseHandler):
-    """Handler for listing available check tasks and packages."""
+class CheckListHandlerRefactored(BaseHandler):
+    """
+    Refactored handler for listing available check tasks and packages.
+
+    This is an example of migrating an existing handler to the new architecture.
+    """
 
     def _init(self, **kwargs):
         """Subclass initialization"""
         # Use ConfigAccessor for configuration access
-        self.work_path = self.config.check_work_path
+        if self.config:
+            self.work_path = self.config.check_work_path
+        else:
+            self.work_path = os.path.expanduser("~/.obdiag/check")
+
         self._log_verbose(f"CheckListHandler initialized: work_path={self.work_path}")
 
     def handle(self) -> ObdiagResult:
-        """List all available check cases and tasks."""
+        """
+        List all available check cases and tasks.
+
+        Returns:
+            ObdiagResult: List of check cases and tasks
+        """
         self._validate_initialized()
 
         try:
             self._log_verbose("Listing check cases")
+
             entries = os.listdir(self.work_path)
             files = [f for f in entries if os.path.isfile(os.path.join(self.work_path, f))]
             result_map = {}
 
+            # Process package files
             for file in files:
                 if "check_package" in file:
                     cases_map = {"all": {"name": "all", "command": "obdiag check run", "info_en": "default check all task without filter", "info_cn": "默认执行除filter组里的所有巡检项"}}
+
                     # Parse package file name
                     parts = file.split('_')
                     if len(parts) < 1:

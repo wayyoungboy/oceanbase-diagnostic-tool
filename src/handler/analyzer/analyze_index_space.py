@@ -17,6 +17,7 @@
 """
 
 
+from src.common.base_handler import BaseHandler
 from prettytable import PrettyTable
 from src.common.tool import StringUtils, Util
 from src.common.ob_connector import OBConnector
@@ -39,10 +40,9 @@ def translate_byte(B):
     return f"{B:.2f} {units[i]}"
 
 
-class AnalyzeIndexSpaceHandler(object):
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
+class AnalyzeIndexSpaceHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.ob_version = get_observer_version(self.context)
         self.sys_connector = None
         self.tenant_id = None
@@ -54,103 +54,102 @@ class AnalyzeIndexSpaceHandler(object):
         self.result_map_list = []
 
     def init_option(self):
-        options = self.context.options
         ob_cluster = self.context.cluster_config
-        self.stdio.verbose('cluster config: {0}'.format(StringUtils.mask_passwords(ob_cluster)))
+        self._log_verbose(f'cluster config: {StringUtils.mask_passwords(ob_cluster)}')
         self.ob_cluster = ob_cluster
         self.sys_connector = OBConnector(context=self.context, ip=ob_cluster.get("db_host"), port=ob_cluster.get("db_port"), username=ob_cluster.get("tenant_sys").get("user"), password=ob_cluster.get("tenant_sys").get("password"), timeout=100)
-        tenant_name = Util.get_option(options, 'tenant_name')
-        database_name = Util.get_option(options, 'database')
-        table_name = Util.get_option(options, 'table_name')
-        index_name = Util.get_option(options, 'index_name')
-        column_names = Util.get_option(options, 'column_names')
+        tenant_name = self._get_option('tenant_name')
+        database_name = self._get_option('database')
+        table_name = self._get_option('table_name')
+        index_name = self._get_option('index_name')
+        column_names = self._get_option('column_names')
         # get tenant id
-        tenant_data = self.sys_connector.execute_sql("select tenant_id from oceanbase.__all_tenant where tenant_name = '{0}';".format(tenant_name))
+        tenant_data = self.sys_connector.execute_sql(f"select tenant_id from oceanbase.__all_tenant where tenant_name = '{tenant_name}';")
         if len(tenant_data) == 0:
-            raise Exception("can not find tenant id by tenant name: {0}. Please check the tenant name.".format(tenant_name))
+            raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
         self.tenant_id = tenant_data[0][0]
         if self.tenant_id is None:
-            raise Exception("can not find tenant id by tenant name: {0}. Please check the tenant name.".format(tenant_name))
+            raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
         # get database id if database_name is provided
         if database_name is not None:
-            database_id_data = self.sys_connector.execute_sql("select database_id from oceanbase.__all_virtual_database where database_name = '{0}' and tenant_id = '{1}';".format(database_name, self.tenant_id))
+            database_id_data = self.sys_connector.execute_sql(f"select database_id from oceanbase.__all_virtual_database where database_name = '{database_name}' and tenant_id = '{self.tenant_id}';")
             if len(database_id_data) == 0:
-                raise Exception("can not find database id by database name: {0}. Please check the database name.".format(database_name))
+                raise Exception(f"can not find database id by database name: {database_name}. Please check the database name.")
             self.database_id = database_id_data[0][0]
             if self.database_id is None:
-                raise Exception("can not find database id by database name: {0}. Please check the database name.".format(database_name))
-            self.stdio.verbose("database_id is {0}".format(self.database_id))
+                raise Exception(f"can not find database id by database name: {database_name}. Please check the database name.")
+            self._log_verbose(f"database_id is {self.database_id}")
         # get table id
         if database_name is not None:
-            table_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name = '{0}' and tenant_id = '{1}' and database_id = '{2}';".format(table_name, self.tenant_id, self.database_id))
+            table_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name = '{table_name}' and tenant_id = '{self.tenant_id}' and database_id = '{self.database_id}';")
         else:
-            table_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name = '{0}' and tenant_id = '{1}';".format(table_name, self.tenant_id))
+            table_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name = '{table_name}' and tenant_id = '{self.tenant_id}';")
         if len(table_id_data) == 0:
             if database_name is not None:
-                raise Exception("can not find table id by table name: {0} and database name: {1}. Please check the table name and database name.".format(table_name, database_name))
+                raise Exception(f"can not find table id by table name: {table_name} and database name: {database_name}. Please check the table name and database name.")
             else:
-                raise Exception("can not find table id by table name: {0}. Please check the table name.".format(table_name))
+                raise Exception(f"can not find table id by table name: {table_name}. Please check the table name.")
         elif len(table_id_data) > 1:
             if database_name is not None:
-                raise Exception("table name is {0}, tenant is {1}, database is {2}. but find more than one table id. Please check the table name and database name.".format(table_name, tenant_name, database_name))
+                raise Exception(f"table name is {table_name}, tenant is {tenant_name}, database is {database_name}. but find more than one table id. Please check the table name and database name.")
             else:
-                raise Exception("table name is {0}, tenant is {1}. but find more than one table id. Please add --database parameter to specify the database name.".format(table_name, tenant_name))
+                raise Exception(f"table name is {table_name}, tenant is {tenant_name}. but find more than one table id. Please add --database parameter to specify the database name.")
         self.table_id = table_id_data[0][0]
         if self.table_id is None:
             if database_name is not None:
-                raise Exception("can not find table id by table name: {0} and database name: {1}. Please check the table name and database name.".format(table_name, database_name))
+                raise Exception(f"can not find table id by table name: {table_name} and database name: {database_name}. Please check the table name and database name.")
             else:
-                raise Exception("can not find table id by table name: {0}. Please check the table name.".format(table_name))
+                raise Exception(f"can not find table id by table name: {table_name}. Please check the table name.")
         # get index id
         if index_name is not None:
-            index_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name like '%{0}%' and data_table_id = '{1}' and tenant_id = '{2}';".format(index_name, self.table_id, self.tenant_id))
+            index_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name like '%{index_name}%' and data_table_id = '{self.table_id}' and tenant_id = '{self.tenant_id}';")
             if len(index_id_data) == 0:
-                raise Exception("can not find index id by index name: {0}. Please check the index name.".format(index_name))
+                raise Exception(f"can not find index id by index name: {index_name}. Please check the index name.")
             self.index_id = index_id_data[0][0]
             if self.index_id is None:
-                raise Exception("can not find index id by index name: {0}. Please check the index name.".format(index_name))
+                raise Exception(f"can not find index id by index name: {index_name}. Please check the index name.")
         # get column names
         if column_names is not None:
             self.column_names = column_names.split(',')
             if len(self.column_names) == 0:
-                raise Exception("--column_names parameter format is incorrect: {0}.".format(column_names))
+                raise Exception(f"--column_names parameter format is incorrect: {column_names}.")
         return True
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
         try:
             self.init_option()
         except Exception as e:
-            self.stdio.error("init option failed: {0}".format(str(e)))
-            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="init option failed: {0}".format(str(e)))
+            self._log_error(f"init option failed: {str(e)}")
+            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data=f"init option failed: {str(e)}")
         # check ob version, this feature only supports OceanBase 4.x
         if not StringUtils.compare_versions_greater(self.ob_version, "4.0.0.0"):
-            self.stdio.error("analyze index_space only supports OceanBase 4.x and above. Current version: {0}".format(self.ob_version))
-            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data="analyze index_space only supports OceanBase 4.x and above. Current version: {0}".format(self.ob_version))
+            self._log_error(f"analyze index_space only supports OceanBase 4.x and above. Current version: {self.ob_version}")
+            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data=f"analyze index_space only supports OceanBase 4.x and above. Current version: {self.ob_version}")
         try:
             # evaluate the space size of the table where the index is located
             self.stdio.start_loading('start query estimated_table_data_size, please wait some minutes...')
-            sql = "select svr_ip, svr_port, sum(original_size) as estimated_table_size from oceanbase.__all_virtual_tablet_sstable_macro_info where tablet_id in (select tablet_id from oceanbase.__all_virtual_tablet_to_table_history where table_id = {0}) and (svr_ip, svr_port) in (select svr_ip, svr_port from oceanbase.__all_virtual_ls_meta_table where role = 1) group by svr_ip, svr_port;".format(
-                self.table_id
-            )
-            self.stdio.verbose("execute_sql is {0}".format(sql))
+            sql = f"select svr_ip, svr_port, sum(original_size) as estimated_table_size from oceanbase.__all_virtual_tablet_sstable_macro_info where tablet_id in (select tablet_id from oceanbase.__all_virtual_tablet_to_table_history where table_id = {self.table_id}) and (svr_ip, svr_port) in (select svr_ip, svr_port from oceanbase.__all_virtual_ls_meta_table where role = 1) group by svr_ip, svr_port;"
+            self._log_verbose(f"execute_sql is {sql}")
             self.estimated_table_data = self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()
             self.stdio.stop_loading('succeed')
             if len(self.estimated_table_data) == 0:
-                raise Exception("can not find estimated_table_data on __all_virtual_tablet_sstable_macro_info by table id: {0}. Please wait major or manually major'".format(self.table_id))
+                raise Exception(f"can not find estimated_table_data on __all_virtual_tablet_sstable_macro_info by table id: {self.table_id}. Please wait major or manually major'")
             # get the sum of all column lengths
-            sql = "select table_id, sum(data_length) as all_columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{0}' and table_id = '{1}';".format(self.tenant_id, self.table_id)
-            self.stdio.verbose("execute_sql is {0}".format(sql))
+            sql = f"select table_id, sum(data_length) as all_columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{self.tenant_id}' and table_id = '{self.table_id}';"
+            self._log_verbose(f"execute_sql is {sql}")
             self.main_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["all_columns_length"])
             # get the sum of column lengths included in the index
             if self.index_id is not None:
-                sql = "select table_id, sum(data_length) as index_columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{0}' and table_id = '{1}';".format(self.tenant_id, self.index_id)
-                self.stdio.verbose("execute_sql is {0}".format(sql))
+                sql = f"select table_id, sum(data_length) as index_columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{self.tenant_id}' and table_id = '{self.index_id}';"
+                self._log_verbose(f"execute_sql is {sql}")
                 self.index_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["index_columns_length"])
             elif len(self.column_names) != 0:
-                sql = "select table_id, sum(data_length) as columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{0}' and table_id = '{1}' and column_name in ('{2}');".format(
-                    self.tenant_id, self.table_id, "','".join(self.column_names)
-                )
-                self.stdio.verbose("execute_sql is {0}".format(sql))
+                column_names_str = "','".join(self.column_names)
+                sql = f"select table_id, sum(data_length) as columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{self.tenant_id}' and table_id = '{self.table_id}' and column_name in ('{column_names_str}');"
+                self._log_verbose(f"execute_sql is {sql}")
                 self.index_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["columns_length"])
             else:
                 raise Exception("please specify an index or column.")
@@ -161,10 +160,10 @@ class AnalyzeIndexSpaceHandler(object):
                 node_estimated_index_data = {"svr_ip": node_table_estimated_size["svr_ip"], "svr_port": node_table_estimated_size["svr_port"]}
                 estimiated_index_size = int(self.index_table_sum_of_data_length / self.main_table_sum_of_data_length * int(node_table_estimated_size["estimated_table_size"]))
                 if self.ob_version == "4.2.3.0" or StringUtils.compare_versions_greater(self.ob_version, "4.2.3.0"):
-                    self.stdio.verbose("magnification is 1.5")
+                    self._log_verbose("magnification is 1.5")
                     target_server_estimated_size = int(estimiated_index_size * 15 / 10)
                 else:
-                    self.stdio.verbose("magnification is 5.5")
+                    self._log_verbose("magnification is 5.5")
                     target_server_estimated_size = int(estimiated_index_size * 55 / 10)
                 node_estimated_index_data["estimiated_index_size"] = target_server_estimated_size
                 estimated_index_data.append(node_estimated_index_data)
@@ -173,14 +172,12 @@ class AnalyzeIndexSpaceHandler(object):
                 target_server_port = node_estimated_index_data["svr_port"]
                 target_server_estimated_index_size = int(node_estimated_index_data["estimiated_index_size"])
                 # get target_server_total_size and target_server_used_size
-                target_server_data = self.sys_connector.execute_sql_return_cursor_dictionary(
-                    "select total_size, used_size from oceanbase.__all_virtual_disk_stat where svr_ip = '{0}' and svr_port = {1};".format(target_server_ip, target_server_port)
-                ).fetchall()
+                target_server_data = self.sys_connector.execute_sql_return_cursor_dictionary(f"select total_size, used_size from oceanbase.__all_virtual_disk_stat where svr_ip = '{target_server_ip}' and svr_port = {target_server_port};").fetchall()
                 target_server_total_size = int(target_server_data[0]["total_size"])
                 target_server_used_size = int(target_server_data[0]["used_size"])
                 # get data_disk_usage_limit_percentage
-                sql = "SELECT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE SVR_IP='{0}' and SVR_PORT='{1}' and NAME LIKE  \"data_disk_usage_limit_percentage\"".format(target_server_ip, target_server_port)
-                self.stdio.verbose("execute_sql is {0}".format(sql))
+                sql = f"SELECT VALUE FROM oceanbase.GV$OB_PARAMETERS WHERE SVR_IP='{target_server_ip}' and SVR_PORT='{target_server_port}' and NAME LIKE  \"data_disk_usage_limit_percentage\""
+                self._log_verbose(f"execute_sql is {sql}")
                 data_disk_usage_limit_percentage = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["VALUE"])
                 # data_disk_usage_limit_percentage is a Cluster level configuration items
                 available_disk_space = int(target_server_total_size / 100 * data_disk_usage_limit_percentage - target_server_used_size)
@@ -191,11 +188,11 @@ class AnalyzeIndexSpaceHandler(object):
                 node_result_map["available_disk_space"] = translate_byte(available_disk_space)
                 self.result_map_list.append(node_result_map)
             self.export_report_table()
-            self.stdio.verbose("end analyze index space")
+            self._log_verbose("end analyze index space")
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data=self.execute())
         except Exception as e:
-            self.stdio.error("analyze index space error: {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="analyze index space error: {0}".format(e))
+            self._log_error(f"analyze index space error: {e}")
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"analyze index space error: {e}")
 
     def execute(self):
         result_map = {}
@@ -209,6 +206,6 @@ class AnalyzeIndexSpaceHandler(object):
             report_index_space_tb.title = "estimated-index-space-report"
             for result in self.result_map_list:
                 report_index_space_tb.add_row([result["ip"], result["port"], result["estimated_index_space"], result["available_disk_space"]])
-            self.stdio.print(report_index_space_tb)
+            self._log_info(report_index_space_tb)
         except Exception as e:
-            raise Exception("export report {0}".format(e))
+            raise Exception(f"export report {e}")

@@ -105,7 +105,9 @@ class Base(SafeStdio):
                     else:
                         self.stdio.verbose("node host_type is {0} not OBPROXY, skipping gather log".format(self.node.get("host_type")))
                 elif self.step["type"] == "sysstat" and (skip_type != "ssh"):
-                    handler = GatherOsInfoHandler(self.context, gather_pack_dir=self.report_path, is_scene=True)
+                    # Use new BaseHandler initialization pattern
+                    handler = GatherOsInfoHandler()
+                    handler.init(self.context, gather_pack_dir=self.report_path, is_scene=True)
                     self.context.set_variable('filter_nodes_list', [self.node])
                     handler.handle()
                 else:

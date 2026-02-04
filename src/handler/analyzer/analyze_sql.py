@@ -19,6 +19,7 @@ import datetime
 import time
 import os
 from tabulate import tabulate
+from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import StringUtils, Util
 from src.common.tool import TimeUtils
@@ -33,11 +34,9 @@ from src.common.command import get_observer_version
 from src.common.result_type import ObdiagResult
 
 
-class AnalyzeSQLHandler(object):
-    def __init__(self, context):
-        super(AnalyzeSQLHandler, self).__init__()
-        self.context = context
-        self.stdio = context.stdio
+class AnalyzeSQLHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.from_time_str = None
         self.to_time_str = None
         self.from_timestamp = None
@@ -52,6 +51,97 @@ class AnalyzeSQLHandler(object):
         self.output_type = 'html'
         self.level = 'notice'
         self.ob_version = '4.0.0.0'
+
+        # Initialize config
+        if self.config:
+            self.config_path = self.config.config_path
+        else:
+            if self.context.inner_config:
+                basic_config = self.context.inner_config['obdiag']['basic']
+                self.config_path = basic_config['config_path']
+
+        ob_cluster = self.context.cluster_config
+        self.ob_cluster = ob_cluster
+        self.sys_connector = OBConnector(context=self.context, ip=ob_cluster.get("db_host"), port=ob_cluster.get("db_port"), username=ob_cluster.get("tenant_sys").get("user"), password=ob_cluster.get("tenant_sys").get("password"), timeout=100)
+        self.ob_cluster_name = ob_cluster.get("ob_cluster_name")
+
+        # Initialize options
+        from_option = self._get_option('from')
+        to_option = self._get_option('to')
+        since_option = self._get_option('since')
+        db_user_option = self._get_option('user')
+        if db_user_option:
+            tenant_name = self.__extract_tenant_name(db_user_option)
+            if tenant_name:
+                self.db_user = db_user_option
+                self.tenant_name = tenant_name
+
+        db_password_option = self._get_option('password')
+        self.db_password = db_password_option
+        tenant_name_option = self._get_option('tenant_name')
+        if tenant_name_option:
+            self.tenant_name = tenant_name_option
+
+        level_option = self._get_option('level')
+        if level_option:
+            self.level = level_option
+
+        store_dir_option = self._get_option('store_dir')
+        if store_dir_option is not None:
+            if not os.path.exists(os.path.abspath(store_dir_option)):
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
+                os.makedirs(os.path.abspath(store_dir_option))
+            self.local_stored_parrent_path = os.path.abspath(store_dir_option)
+
+        output_option = self._get_option('output')
+        if output_option:
+            self.output_type = output_option
+
+        limit_option = self._get_option('limit')
+        if limit_option:
+            self.sql_audit_limit = limit_option
+
+        elapsed_time_option = self._get_option('elapsed_time')
+        if elapsed_time_option:
+            self.elapsed_time = elapsed_time_option
+
+        if from_option is not None and to_option is not None:
+            try:
+                from_timestamp = TimeUtils.parse_time_str(from_option)
+                to_timestamp = TimeUtils.parse_time_str(to_option)
+                self.from_time_str = from_option
+                self.to_time_str = to_option
+            except Exception:
+                raise ValueError(f'Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={from_option}, to_datetime={to_option}')
+            if to_timestamp <= from_timestamp:
+                raise ValueError('Error: from datetime is larger than to datetime, please check.')
+        elif (from_option is None or to_option is None) and since_option is not None:
+            now_time = datetime.datetime.now()
+            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
+            self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
+            self._log_info(f'analyze sql from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+        else:
+            self._log_warn('no time option provided, default processing is based on the last 30 minutes')
+            now_time = datetime.datetime.now()
+            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
+            if since_option is not None:
+                self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+            self._log_info(f'analyze sql from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+
+        self.from_timestamp = TimeUtils.datetime_to_timestamp(self.from_time_str, self.stdio)
+        self.to_timestamp = TimeUtils.datetime_to_timestamp(self.to_time_str, self.stdio)
+
+        # Initialize ob version
+        self.ob_version = get_observer_version(self.context)
+
+        # Initialize db connector
+        if self.db_user:
+            self.db_connector_provided = True
+            self.db_connector = OBConnector(context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.db_user, password=self.db_password, timeout=100)
+        else:
+            self.db_connector = self.sys_connector
         self.sql_audit_keys = [
             'svrIp',
             'svrPort',
@@ -106,148 +196,42 @@ class AnalyzeSQLHandler(object):
             'planCachePlanExplain',
         ]
 
-    def init_inner_config(self):
-        self.stdio.print('init inner config start')
-        self.inner_config = self.context.inner_config
-        self.stdio.verbose('inner config: {0}'.format(self.inner_config))
-        basic_config = self.inner_config['obdiag']['basic']
-        self.config_path = basic_config['config_path']
-        self.stdio.print('init inner config complete')
-        return True
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-    def init_config(self):
-        self.stdio.print('init cluster config start')
-        ob_cluster = self.context.cluster_config
-        self.stdio.verbose('cluster config: {0}'.format(StringUtils.mask_passwords(ob_cluster)))
-        self.ob_cluster = ob_cluster
-        self.sys_connector = OBConnector(context=self.context, ip=ob_cluster.get("db_host"), port=ob_cluster.get("db_port"), username=ob_cluster.get("tenant_sys").get("user"), password=ob_cluster.get("tenant_sys").get("password"), timeout=100)
-        self.ob_cluster_name = ob_cluster.get("ob_cluster_name")
-        self.stdio.print('init cluster config complete')
-        return True
-
-    def init_ob_version(self):
-        self.stdio.print('get observer version start')
-        self.ob_version = get_observer_version(self.context)
-        self.stdio.print('get observer version complete, version:{0}'.format(self.ob_version))
-        return True
-
-    def init_db_connector(self):
-        if self.db_user:
-            self.db_connector_provided = True
-            self.db_connector = OBConnector(context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.db_user, password=self.db_password, timeout=100)
-        else:
-            self.db_connector = self.sys_connector
-
-    def init_option(self):
-        self.stdio.print('init option start')
-        options = self.context.options
-        self.stdio.verbose('options:[{0}]'.format(options))
-        from_option = Util.get_option(options, 'from')
-        to_option = Util.get_option(options, 'to')
-        since_option = Util.get_option(options, 'since')
-        db_user_option = Util.get_option(options, 'user')
-        if db_user_option:
-            tenant_name = self.__extract_tenant_name(db_user_option)
-            if tenant_name:
-                self.db_user = db_user_option
-                self.tenant_name = tenant_name
-        db_password_option = Util.get_option(options, 'password')
-        self.db_password = db_password_option
-        tenant_name_option = Util.get_option(options, 'tenant_name')
-        if tenant_name_option:
-            self.tenant_name = tenant_name_option
-        level_option = Util.get_option(options, 'level')
-        if level_option:
-            self.level = level_option
-        store_dir_option = Util.get_option(options, 'store_dir')
-        if store_dir_option is not None:
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.local_stored_parrent_path = os.path.abspath(store_dir_option)
-        output_option = Util.get_option(options, 'output')
-        if output_option:
-            self.output_type = output_option
-        limit_option = Util.get_option(options, 'limit')
-        if limit_option:
-            self.sql_audit_limit = limit_option
-        elapsed_time_option = Util.get_option(options, 'elapsed_time')
-        if elapsed_time_option:
-            self.elapsed_time = elapsed_time_option
-        if from_option is not None and to_option is not None:
-            try:
-                from_timestamp = TimeUtils.parse_time_str(from_option)
-                to_timestamp = TimeUtils.parse_time_str(to_option)
-                self.from_time_str = from_option
-                self.to_time_str = to_option
-            except:
-                self.stdio.exception('Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={0}, to_datetime={1}'.format(from_option, to_option))
-                return False
-            if to_timestamp <= from_timestamp:
-                self.stdio.error('Error: from datetime is larger than to datetime, please check.')
-                return False
-        elif (from_option is None or to_option is None) and since_option is not None:
-            now_time = datetime.datetime.now()
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
-            self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
-            self.stdio.print('analyze sql from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
-        else:
-            self.stdio.warn('no time option provided, default processing is based on the last 30 minutes')
-            now_time = datetime.datetime.now()
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
-            if since_option is not None:
-                self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            self.start_time = time.time()
+            self.local_store_path = os.path.join(self.local_stored_parrent_path, f"obdiag_analyze_sql_result_{TimeUtils.timestamp_to_filename_time(self.from_timestamp)}_{TimeUtils.timestamp_to_filename_time(self.to_timestamp)}.html")
+            self._log_info(f"use {self.local_store_path} as result store path.")
+            all_tenant_results = {}
+            if self.tenant_name:
+                meta = SysTenantMeta(self.sys_connector, self.stdio, self.ob_version)
+                self._log_info('select sql tenant name list start')
+                tenant_names = meta.get_ob_tenant_name_list()
+                self._log_info(f'select sql tenant name list end, result:{tenant_names}')
             else:
-                self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
-            self.stdio.print('analyze sql from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
-        self.from_timestamp = TimeUtils.datetime_to_timestamp(self.from_time_str, self.stdio)
-        self.to_timestamp = TimeUtils.datetime_to_timestamp(self.to_time_str, self.stdio)
-        self.stdio.print('init option complete')
-        return True
+                tenant_names = [self.tenant_name]
+            for tenant_name in tenant_names:
+                self._log_info(f'select tenant:{tenant_name[0]} sql audit start')
+                inner_results = self.__select_sql_audit(tenant_name[0])
+                self._log_info(f'select tenant:{tenant_name[0]} sql audit complete')
+                filter_results = self.__filter_max_elapsed_time_with_same_sql_id(inner_results)
+                all_tenant_results[tenant_name] = filter_results
+            for tenant_name, results in all_tenant_results.items():
+                for item in results:
+                    item['planCachePlanExplain'] = self.__get_plan_cache_plan_explain(item)
+                    item['diagnosticEntries'] = self.__parse_sql_review(item["querySql"])
+            if self.output_type == "html":
+                data = self.__gather_cluster_info()
+                html_result = self.__generate_html_result(all_tenant_results, data)
+                if html_result:
+                    FileUtil.write_append(self.local_store_path, html_result)
+                    self.__print_result()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_path": self.local_store_path})
 
-    def handle(self):
-        self.start_time = time.time()
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        if not self.init_inner_config():
-            self.stdio.error('init inner config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init inner config failed")
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        if not self.init_ob_version():
-            self.stdio.error('init ob version failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init ob version failed")
-        self.init_db_connector()
-        self.local_store_path = os.path.join(self.local_stored_parrent_path, "obdiag_analyze_sql_result_{0}_{1}.html".format(TimeUtils.timestamp_to_filename_time(self.from_timestamp), TimeUtils.timestamp_to_filename_time(self.to_timestamp)))
-        self.stdio.print("use {0} as result store path.".format(self.local_store_path))
-        all_tenant_results = {}
-        if self.tenant_name:
-            meta = SysTenantMeta(self.sys_connector, self.stdio, self.ob_version)
-            self.stdio.print('select sql tenant name list start')
-            tenant_names = meta.get_ob_tenant_name_list()
-            self.stdio.print('select sql tenant name list end, result:{0}'.format(tenant_names))
-        else:
-            tenant_names = [self.tenant_name]
-        for tenant_name in tenant_names:
-            self.stdio.print('select tenant:{0} sql audit start'.format(tenant_name[0]))
-            inner_results = self.__select_sql_audit(tenant_name[0])
-            self.stdio.print('select tenant:{0} sql audit complete'.format(tenant_name[0]))
-            filter_results = self.__filter_max_elapsed_time_with_same_sql_id(inner_results)
-            all_tenant_results[tenant_name] = filter_results
-        for tenant_name, results in all_tenant_results.items():
-            for item in results:
-                item['planCachePlanExplain'] = self.__get_plan_cache_plan_explain(item)
-                item['diagnosticEntries'] = self.__parse_sql_review(item["querySql"])
-        if self.output_type == "html":
-            data = self.__gather_cluster_info()
-            html_result = self.__generate_html_result(all_tenant_results, data)
-            if html_result:
-                FileUtil.write_append(self.local_store_path, html_result)
-                self.__print_result()
-        else:
-            pass
+        except Exception as e:
+            return self._handle_error(e)
 
     def __extract_tenant_name(self, username):
         """
@@ -269,7 +253,7 @@ class AnalyzeSQLHandler(object):
             if len(parts) >= 3:
                 return parts[1]
 
-        self.stdio.error("unable to recognize the user name format")
+        self._log_error("unable to recognize the user name format")
         return None
 
     def __select_sql_audit(self, tenant_name):
@@ -283,12 +267,12 @@ class AnalyzeSQLHandler(object):
         }
         for old, new in replacements.items():
             sql = sql.replace(old, new)
-        self.stdio.verbose("excute SQL: {0}".format(sql))
+        self._log_verbose(f"excute SQL: {sql}")
         columns, rows = self.db_connector.execute_sql_return_columns_and_data(sql)
         result = []
         for row in rows:
             result.append(dict(zip(columns, row)))
-        self.stdio.print("excute select sql_audit SQL complete, the length of raw result is {0}".format(len(result)))
+        self._log_info(f"excute select sql_audit SQL complete, the length of raw result is {len(result)}")
         return result
 
     def __get_plan_cache_plan_explain(self, data):
@@ -306,7 +290,7 @@ class AnalyzeSQLHandler(object):
                 max_elapsed_times[key] = item
         # Extract the values which are the filtered list
         filtered_data = list(max_elapsed_times.values())
-        self.stdio.print("filter filter max elapsed time with same sql_id complete, raw data length:{0}, filter data length:{1}".format(len(data), len(filtered_data)))
+        self._log_info(f"filter filter max elapsed time with same sql_id complete, raw data length:{len(data)}, filter data length:{len(filtered_data)}")
         return filtered_data
 
     def __parse_sql_review(self, sql):
@@ -349,14 +333,15 @@ class AnalyzeSQLHandler(object):
         return result
 
     def __gather_cluster_info(self):
-        handler = GatherSceneHandler(context=self.context, gather_pack_dir=self.local_stored_parrent_path, is_inner=True)
+        handler = GatherSceneHandler()
+        handler.init(self.context, gather_pack_dir=self.local_stored_parrent_path, is_inner=True)
         return handler.handle()
 
     def __generate_html_result(self, all_results, cluster_data):
         if len(all_results) == 0:
-            self.stdio.error('sql audit result is empty, unable to generate HTML')
+            self._log_error('sql audit result is empty, unable to generate HTML')
             return None
-        self.stdio.print('generate html result start')
+        self._log_info('generate html result start')
         full_html = ""
         table_headers = self.__generate_table_headers()
         cluster_info = self.__generate_cluster_info_html(cluster_data)
@@ -411,7 +396,7 @@ class AnalyzeSQLHandler(object):
             + all_sql_entries_html
         )
         full_html += GlobalHtmlMeta().get_value(key="html_footer_temple")
-        self.stdio.print('generate html result complete')
+        self._log_info('generate html result complete')
         return full_html
 
     def __print_result(self):
@@ -419,6 +404,6 @@ class AnalyzeSQLHandler(object):
         elapsed_time = self.end_time - self.start_time
         data = [["Status", "Result Details", "Time"], ["Completed", self.local_store_path, f"{elapsed_time:.2f} s"]]
         table = tabulate(data, headers="firstrow", tablefmt="grid")
-        self.stdio.print("\nAnalyze SQL Summary:")
-        self.stdio.print(table)
-        self.stdio.print("\n")
+        self._log_info("\nAnalyze SQL Summary:")
+        self._log_info(table)
+        self._log_info("\n")

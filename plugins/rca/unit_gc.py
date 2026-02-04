@@ -33,7 +33,7 @@ class UnitGCScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -64,7 +64,7 @@ class UnitGCScene(RcaScene):
             # save gv_ob_units_data > #{work_path}/gv_ob_units_data.txt
             columns = [desc[0] for desc in cursor_gv_ob_units.description]
             gv_ob_units_data_save_path = os.path.join(self.work_path, "gv_ob_units_data.txt")
-            with open(gv_ob_units_data_save_path, 'w') as f:
+            with open(gv_ob_units_data_save_path, 'w', encoding='utf-8') as f:
                 f.write('\t'.join(columns) + '\n')
                 for row in gv_ob_units_data:
                     line = ""
@@ -103,7 +103,7 @@ class UnitGCScene(RcaScene):
                 return self.stdio.print("[RCANotNeedExecute] Not find tenant_ids about unit_gc.")
             # check "this ls is not safe to destroy" exit in log
             self.record.add_record("start check \"this ls is not safe to destroy\" exit in log")
-            not_safe_to_destroy_log = self.__check_str_in_log("this ls is not safe to destroy")
+            not_safe_to_destroy_log = self._check_str_in_log("this ls is not safe to destroy")
             if not_safe_to_destroy_log:
                 self.record.add_record("find \"this ls is not safe to destroy\" exit in log: {0}".format(not_safe_to_destroy_log))
                 self.record.add_record("the type of problem is \"safe destroy\"")
@@ -113,7 +113,7 @@ class UnitGCScene(RcaScene):
             self.record.add_record("the type of problem is \"gc mod problem\"")
             self.record.add_record("start transfer")
             # transfer_log: check "The ls is dependent and is not allowed to be GC" exit in log
-            transfer_log = self.__check_str_in_log("The ls is dependent and is not allowed to be GC")
+            transfer_log = self._check_str_in_log("The ls is dependent and is not allowed to be GC")
             if transfer_log:
                 self.record.add_record("find \"The ls is dependent and is not allowed to be GC\" exit in log: {0}".format(transfer_log))
                 # 存在transfer依赖
@@ -122,7 +122,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"The ls is dependent and is not allowed to be GC\" exit in log")
             # only_read_log: check "need wait before readonly tx been cleaned up" in log
-            only_read_log = self.__check_str_in_log("need wait before readonly tx been cleaned up")
+            only_read_log = self._check_str_in_log("need wait before readonly tx been cleaned up")
             if only_read_log:
                 self.record.add_record("find \"need wait before readonly tx been cleaned up\" exit in log: {0}".format(only_read_log))
                 self.record.add_record("the type of problem is \"only read\"")
@@ -130,7 +130,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"need wait before readonly tx been cleaned up\" exit in log")
             # ls_waiting_compaction_log: check "need wait before readonly tx been cleaned up" in log
-            ls_waiting_compaction_log = self.__check_str_in_log("need wait before readonly tx been cleaned up")
+            ls_waiting_compaction_log = self._check_str_in_log("need wait before readonly tx been cleaned up")
             if ls_waiting_compaction_log:
                 self.record.add_record("find \"need wait before readonly tx been cleaned up\" exit in log: {0}".format(ls_waiting_compaction_log))
                 self.record.add_record("the type of problem is \"ls waiting for comparison\"")
@@ -138,7 +138,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"The ls is waiting for comparison\" exit in log")
             # ls_waiting_transactions_log : check "offline tx service failed" in log
-            ls_waiting_transactions_log = self.__check_str_in_log("offline tx service failed")
+            ls_waiting_transactions_log = self._check_str_in_log("offline tx service failed")
             if ls_waiting_transactions_log:
                 self.record.add_record("find \"offline tx service failed\" exit in log: {0}".format(ls_waiting_transactions_log))
                 self.record.add_record("the type of problem is \"ls waiting for transactions\"")
@@ -146,7 +146,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"offline tx service failed\" exit in log")
             # other_mod_log: check "this ls is not safe to destroy" exit in log
-            other_mod_log = self.__check_str_in_log("ls offline failed")
+            other_mod_log = self._check_str_in_log("ls offline failed")
             if other_mod_log:
                 self.record.add_record("find \"ls offline failed\" exit in log: {0}".format(other_mod_log))
                 self.record.add_record("the type of problem is \"other mod\"")
@@ -154,7 +154,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"ls offline failed\" exit in log")
             # ls_wait: check "ls is waiting for" exit in log
-            ls_wait_log = self.__check_str_in_log("ls wait not finished.")
+            ls_wait_log = self._check_str_in_log("ls wait not finished.")
             if ls_wait_log:
                 self.record.add_record("find \"ls wait not finished.\" exit in log: {0}".format(ls_wait_log))
                 self.record.add_record("the type of problem is \"ls waiting for\"")
@@ -162,7 +162,7 @@ class UnitGCScene(RcaScene):
             else:
                 self.record.add_record("Not find \"ls wait not finished.\" exit in log")
             # resource_release: check "check_all_meta_mem_released" exit in log
-            resource_release_log = self.__check_str_in_log("check_all_meta_mem_released")
+            resource_release_log = self._check_str_in_log("check_all_meta_mem_released")
             if resource_release_log:
                 self.record.add_record("find \"check_all_meta_mem_released\" exit in log: {0}".format(resource_release_log))
                 self.record.add_record("the type of problem is \"resource release\"")
@@ -177,7 +177,7 @@ class UnitGCScene(RcaScene):
             self.record.add_suggest("Please send {0} to the Oceanbase community.".format(self.work_path))
             self.stdio.verbose("end UnitGCScene execute")
 
-    def __check_str_in_log(self, str):
+    def _check_str_in_log(self, str):
         for log_name in self.logs_name:
             with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                 file_data = f.read()

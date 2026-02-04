@@ -23,6 +23,7 @@ import time
 from decimal import Decimal
 import tabulate
 from prettytable import from_db_cursor
+from src.common.base_handler import BaseHandler
 from src.common.ob_connector import OBConnector
 from src.handler.meta.html_meta import GlobalHtmlMeta
 from src.handler.meta.sql_meta import GlobalSqlMeta
@@ -38,10 +39,9 @@ from src.common.result_type import ObdiagResult
 from src.common.version import OBDIAG_VERSION
 
 
-class GatherPlanMonitorHandler(object):
-    def __init__(self, context, gather_pack_dir='./', is_scene=False):
-        self.context = context
-        self.stdio = context.stdio
+class GatherPlanMonitorHandler(BaseHandler):
+    def _init(self, gather_pack_dir='./', is_scene=False, **kwargs):
+        """Subclass initialization"""
         self.ob_cluster = None
         self.local_stored_path = gather_pack_dir
         self.tenant_mode = None
@@ -60,218 +60,223 @@ class GatherPlanMonitorHandler(object):
         self.ob_version = "4.2.5.0"
         self.skip = None
         self.db_tables = []
+
         if self.context.get_variable("gather_timestamp", None):
             self.gather_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
 
-    def init_config(self):
+        # Initialize config
         ob_cluster = self.context.cluster_config
         self.ob_cluster = ob_cluster
         self.sys_connector = OBConnector(context=self.context, ip=ob_cluster.get("db_host"), port=ob_cluster.get("db_port"), username=ob_cluster.get("tenant_sys").get("user"), password=ob_cluster.get("tenant_sys").get("password"), timeout=100)
         self.ob_cluster_name = ob_cluster.get("ob_cluster_name")
-        return True
 
-    def init_option(self):
-        options = self.context.options
-        trace_id_option = Util.get_option(options, 'trace_id')
-        store_dir_option = Util.get_option(options, 'store_dir')
-        env_option = Util.get_option(options, 'env')
-        skip_option = Util.get_option(options, 'skip')
+        # Initialize options
+        trace_id_option = self._get_option('trace_id')
         if self.context.get_variable("gather_plan_monitor_trace_id", None):
             trace_id_option = self.context.get_variable("gather_plan_monitor_trace_id")
+
         if trace_id_option is not None:
             self.trace_id = trace_id_option
         else:
-            self.stdio.error("option --trace_id not found, please provide")
-            return False
+            raise ValueError("option --trace_id not found, please provide")
+
+        store_dir_option = self._get_option('store_dir')
         if store_dir_option and store_dir_option != './':
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('warn: option --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'warn: option --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.local_stored_path = os.path.abspath(store_dir_option)
+
+        env_option = self._get_option('env')
         if env_option is not None:
-            self.stdio.verbose("use db_connector")
+            self._log_verbose("use db_connector")
             if not self.__init_db_conn(env_option):
-                return False
+                raise ValueError("Failed to initialize db connection")
         else:
-            self.stdio.verbose("use sys_connector")
+            self._log_verbose("use sys_connector")
             self.db_connector = self.sys_connector
+
+        skip_option = self._get_option('skip')
         if skip_option:
             self.skip = skip_option
-        return self.tenant_mode_detected()
+
+        if not self.tenant_mode_detected():
+            raise ValueError("Failed to detect tenant mode")
 
     def __init_db_connector(self):
         self.db_connector = OBConnector(context=self.context, ip=self.db_conn.get("host"), port=self.db_conn.get("port"), username=self.db_conn.get("user"), password=self.db_conn.get("password") or "", database=self.db_conn.get("database"), timeout=100)
 
-    def handle(self):
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        if self.is_scene:
-            pack_dir_this_command = self.local_stored_path
-        else:
-            pack_dir_this_command = os.path.join(self.local_stored_path, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
-        self.report_file_path = os.path.join(pack_dir_this_command, "sql_plan_monitor_report.html")
-        self.stdio.verbose("Use {0} as pack dir.".format(pack_dir_this_command))
-        DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
-        gather_tuples = []
-        gather_pack_path_dict = {}
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-        def handle_plan_monitor_from_ob(cluster_name):
-            """
-            handler sql plan monitor from ob
-            :return:
-            """
-            st = time.time()
-            resp = self.init_resp()
-            result_sql_audit_by_trace_id_limit1 = self.select_sql_audit_by_trace_id_limit1()
-            if len(result_sql_audit_by_trace_id_limit1) > 0:
-                trace = result_sql_audit_by_trace_id_limit1[0]
-                trace_id = trace[0]
-                user_sql = trace[1]
-                sql = trace[1]
-                tenant_name = trace[6]
-                db_name = trace[8]
-                plan_id = trace[9]
-                tenant_id = trace[10]
-                svr_ip = trace[12]
-                svr_port = trace[13]
-                params_value = None
-                try:
-                    params_value = trace[14]
-                except IndexError:
-                    # OB 3.x
-                    self.stdio.verbose("OceanBase version is 3.x, params_value column is not available.")
-
-                # 如果params_value不为空，说明是PS模式的SQL，需要填充参数
-                if params_value:
-                    sql = StringUtils.fill_sql_with_params(sql, params_value, self.stdio)
-                    user_sql = sql
-                self.stdio.verbose("TraceID : %s " % trace_id)
-                self.stdio.verbose("SQL : %s " % sql)
-                self.stdio.verbose("SVR_IP : %s " % svr_ip)
-                self.stdio.verbose("SVR_PORT : %s " % svr_port)
-                self.stdio.verbose("DB: %s " % db_name)
-                self.stdio.verbose("PLAN_ID: %s " % plan_id)
-                self.stdio.verbose("TENANT_NAME: %s " % tenant_name)
-                self.stdio.verbose("TENANT_ID: %s " % tenant_id)
-
-                sql_plan_monitor_svr_agg_template = self.sql_plan_monitor_svr_agg_template_sql()
-                sql_plan_monitor_svr_agg_v1 = str(sql_plan_monitor_svr_agg_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PLAN_LINE_ID ASC, MAX_CHANGE_TIME ASC, SVR_IP, SVR_PORT")
-                sql_plan_monitor_svr_agg_v2 = str(sql_plan_monitor_svr_agg_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "SVR_IP, SVR_PORT, PLAN_LINE_ID")
-
-                sql_plan_monitor_detail_template = self.sql_plan_monitor_detail_template_sql()
-                sql_plan_monitor_detail_v1 = str(sql_plan_monitor_detail_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PLAN_LINE_ID ASC, SVR_IP, SVR_PORT, CHANGE_TS, PROCESS_NAME ASC")
-                sql_plan_monitor_detail_v2 = str(sql_plan_monitor_detail_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PROCESS_NAME ASC, PLAN_LINE_ID ASC, FIRST_REFRESH_TIME ASC")
-
-                sql_plan_monitor_dfo_op = self.sql_plan_monitor_dfo_op_sql(tenant_id, plan_id, trace_id, svr_ip, svr_port)
-                sql_ash_top_event = self.sql_ash_top_event_sql(tenant_id, trace_id)
-                sql_plan_monitor_db_time = self.sql_plan_monitor_db_time_sql(tenant_id, trace_id)
-                full_audit_sql_by_trace_id_sql = self.full_audit_sql_by_trace_id_sql(trace_id)
-                plan_explain_sql = self.plan_explain_sql(tenant_id, plan_id, svr_ip, svr_port)
-
-                # 输出报告头
-                self.stdio.verbose("[sql plan monitor report task] report header")
-                self.report_header()
-                # 输出sql_audit的概要信息
-                self.stdio.verbose("[sql plan monitor report task] report sql_audit")
-                if not self.report_sql_audit():
-                    return
-                # 输出sql explain的信息
-                self.stdio.verbose("[sql plan monitor report task] report plan explain, sql: [{0}]".format(sql))
-                self.report_plan_explain(db_name, sql)
-                # 输出plan cache的信息
-                self.stdio.verbose("[sql plan monitor report task] report plan cache")
-                self.report_plan_cache(plan_explain_sql)
-                # dbms_xplan.display_cursor
-                display_cursor_sql = "SELECT DBMS_XPLAN.DISPLAY_CURSOR({plan_id}, 'all', '{svr_ip}',  {svr_port}, {tenant_id}) FROM DUAL".format(plan_id=plan_id, svr_ip=svr_ip, svr_port=svr_port, tenant_id=tenant_id)
-                self.report_display_cursor_obversion4(display_cursor_sql)
-                # 输出表结构的信息
-                self.stdio.verbose("[sql plan monitor report task] report table schema")
-                self.report_schema(user_sql, tenant_name)
-                # 检查表和列的collation一致性
-                self.stdio.verbose("[sql plan monitor report task] check table collation")
-                self.report_table_collation_check(user_sql, db_name)
-                # 统计信息直方图 (Issue #626)
-                self.stdio.verbose("[sql plan monitor report task] report table histograms")
-                self.report_table_histograms(user_sql, db_name)
-                # ASH 统计
-                self.stdio.verbose("[ash report task] report ash, sql: [{0}]".format(sql_ash_top_event))
-                self.report_ash_obversion4(sql_ash_top_event)
-                self.init_monitor_stat()
-                # 输出sql_audit的详细信息
-                self.stdio.verbose("[sql plan monitor report task] report sql_audit details")
-                self.report_sql_audit_details(full_audit_sql_by_trace_id_sql)
-                # 输出算子信息 表+图
-                self.stdio.verbose("[sql plan monitor report task] report sql plan monitor dfo")
-                self.report_sql_plan_monitor_dfo_op(sql_plan_monitor_dfo_op)
-                # db time
-                self.stdio.verbose("[db time display task] report db time display")
-                self.report_db_time_display_op(sql_plan_monitor_db_time)
-                # 输出算子信息按 svr 级汇总 表+图
-                self.stdio.verbose("[sql plan monitor report task] report sql plan monitor group by server")
-                self.report_sql_plan_monitor_svr_agg(sql_plan_monitor_svr_agg_v1, sql_plan_monitor_svr_agg_v2)
-                self.report_fast_preview()
-                # 输出算子信息按算子维度聚集
-                self.stdio.verbose("[sql plan monitor report task] sql plan monitor detail operator")
-                self.report_sql_plan_monitor_detail_operator_priority(sql_plan_monitor_detail_v1)
-                # 输出算子信息按线程维度聚集
-                self.stdio.verbose("[sql plan monitor report task] sql plan monitor group by priority")
-                self.reportsql_plan_monitor_detail_svr_priority(sql_plan_monitor_detail_v2)
-
-                # 输出本报告在租户下使用的 SQL
-                self.__report("<h4>本报告在租户下使用的 SQL</h4>")
-                self.__report("<div class='help' style='font-size:11px'>DFO 级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_dfo_op))
-                self.__report("<div class='help' style='font-size:11px'>机器级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_svr_agg_v1))
-                self.__report("<div class='help' style='font-size:11px'>线程级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_detail_v1))
-
-                t = time.localtime(time.time())
-                self.__report("Report generation time： %s <br>" % (time.strftime("%Y-%m-%d %H:%M:%S", t)))
-                self.__report("obdiag version: {0} <br>".format(OBDIAG_VERSION))
-                self.__report("observer version: {0} <br>".format(self.ob_version))
-                observer_version_commit_id = get_observer_commit_id(self.context)
-                if observer_version_commit_id:
-                    self.__report("observer commit id: {0} <br>".format(observer_version_commit_id))
-                self.report_footer()
-                self.stdio.verbose("report footer complete")
+        try:
+            if self.is_scene:
+                pack_dir_this_command = self.local_stored_path
             else:
-                self.stdio.error("The data queried with the specified trace_id {0} from {1} is empty. Please verify if this trace_id has expired.".format(self.trace_id, self.sql_audit_name))
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+            self.report_file_path = os.path.join(pack_dir_this_command, "sql_plan_monitor_report.html")
+            self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
+            DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
+            gather_tuples = []
+            gather_pack_path_dict = {}
 
-            if resp["skip"]:
-                return
-            if resp["error"]:
-                gather_tuples.append((cluster_name, True, resp["error_msg"], 0, int(time.time() - st), "Error:{0}".format(resp["error_msg"]), ""))
-                return
-            gather_pack_path_dict[cluster_name] = resp["gather_pack_path"]
-            gather_tuples.append((cluster_name, False, "", int(time.time() - st), pack_dir_this_command))
+            def handle_plan_monitor_from_ob(cluster_name):
+                """
+                handler sql plan monitor from ob
+                :return:
+                """
+                st = time.time()
+                resp = self.init_resp()
+                result_sql_audit_by_trace_id_limit1 = self.select_sql_audit_by_trace_id_limit1()
+                if len(result_sql_audit_by_trace_id_limit1) > 0:
+                    trace = result_sql_audit_by_trace_id_limit1[0]
+                    trace_id = trace[0]
+                    user_sql = trace[1]
+                    sql = trace[1]
+                    tenant_name = trace[6]
+                    db_name = trace[8]
+                    plan_id = trace[9]
+                    tenant_id = trace[10]
+                    svr_ip = trace[12]
+                    svr_port = trace[13]
+                    params_value = None
+                    try:
+                        params_value = trace[14]
+                    except IndexError:
+                        # OB 3.x
+                        self._log_verbose("OceanBase version is 3.x, params_value column is not available.")
 
-        if getattr(sys, 'frozen', False):
-            absPath = os.path.dirname(sys.executable)
-        else:
-            absPath = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        cs_resources_path = os.path.join(absPath, "resources")
-        self.stdio.verbose("[cs resource path] : {0}".format(cs_resources_path))
-        target_resources_path = os.path.join(pack_dir_this_command, "resources")
-        self.copy_cs_resource(cs_resources_path, target_resources_path)
-        self.stdio.verbose("[sql plan monitor report task] start")
-        handle_plan_monitor_from_ob(self.ob_cluster_name)
-        self.stdio.verbose("[sql plan monitor report task] end")
-        summary_tuples = self.__get_overall_summary(gather_tuples)
-        self.stdio.print(summary_tuples)
-        # 将汇总结果持久化记录到文件中
-        FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
-        # return gather_tuples, gather_pack_path_dict
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+                    # 如果params_value不为空，说明是PS模式的SQL，需要填充参数
+                    if params_value:
+                        sql = StringUtils.fill_sql_with_params(sql, params_value, self.stdio)
+                        user_sql = sql
+                    self._log_verbose(f"TraceID : {trace_id} ")
+                    self._log_verbose(f"SQL : {sql} ")
+                    self._log_verbose(f"SVR_IP : {svr_ip} ")
+                    self._log_verbose(f"SVR_PORT : {svr_port} ")
+                    self._log_verbose(f"DB: {db_name} ")
+                    self._log_verbose(f"PLAN_ID: {plan_id} ")
+                    self._log_verbose(f"TENANT_NAME: {tenant_name} ")
+                    self._log_verbose(f"TENANT_ID: {tenant_id} ")
+
+                    sql_plan_monitor_svr_agg_template = self.sql_plan_monitor_svr_agg_template_sql()
+                    sql_plan_monitor_svr_agg_v1 = str(sql_plan_monitor_svr_agg_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PLAN_LINE_ID ASC, MAX_CHANGE_TIME ASC, SVR_IP, SVR_PORT")
+                    sql_plan_monitor_svr_agg_v2 = str(sql_plan_monitor_svr_agg_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "SVR_IP, SVR_PORT, PLAN_LINE_ID")
+
+                    sql_plan_monitor_detail_template = self.sql_plan_monitor_detail_template_sql()
+                    sql_plan_monitor_detail_v1 = str(sql_plan_monitor_detail_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PLAN_LINE_ID ASC, SVR_IP, SVR_PORT, CHANGE_TS, PROCESS_NAME ASC")
+                    sql_plan_monitor_detail_v2 = str(sql_plan_monitor_detail_template).replace("##REPLACE_TRACE_ID##", trace_id).replace("##REPLACE_ORDER_BY##", "PROCESS_NAME ASC, PLAN_LINE_ID ASC, FIRST_REFRESH_TIME ASC")
+
+                    sql_plan_monitor_dfo_op = self.sql_plan_monitor_dfo_op_sql(tenant_id, plan_id, trace_id, svr_ip, svr_port)
+                    sql_ash_top_event = self.sql_ash_top_event_sql(tenant_id, trace_id)
+                    sql_plan_monitor_db_time = self.sql_plan_monitor_db_time_sql(tenant_id, trace_id)
+                    full_audit_sql_by_trace_id_sql = self.full_audit_sql_by_trace_id_sql(trace_id)
+                    plan_explain_sql = self.plan_explain_sql(tenant_id, plan_id, svr_ip, svr_port)
+
+                    # 输出报告头
+                    self._log_verbose("[sql plan monitor report task] report header")
+                    self.report_header()
+                    # 输出sql_audit的概要信息
+                    self._log_verbose("[sql plan monitor report task] report sql_audit")
+                    if not self.report_sql_audit():
+                        return
+                    # 输出sql explain的信息
+                    self._log_verbose(f"[sql plan monitor report task] report plan explain, sql: [{sql}]")
+                    self.report_plan_explain(db_name, sql)
+                    # 输出plan cache的信息
+                    self._log_verbose("[sql plan monitor report task] report plan cache")
+                    self.report_plan_cache(plan_explain_sql)
+                    # dbms_xplan.display_cursor
+                    display_cursor_sql = "SELECT DBMS_XPLAN.DISPLAY_CURSOR({plan_id}, 'all', '{svr_ip}',  {svr_port}, {tenant_id}) FROM DUAL".format(plan_id=plan_id, svr_ip=svr_ip, svr_port=svr_port, tenant_id=tenant_id)
+                    self.report_display_cursor_obversion4(display_cursor_sql)
+                    # 输出表结构的信息
+                    self._log_verbose("[sql plan monitor report task] report table schema")
+                    self.report_schema(user_sql, tenant_name)
+                    # 检查表和列的collation一致性
+                    self._log_verbose("[sql plan monitor report task] check table collation")
+                    self.report_table_collation_check(user_sql, db_name)
+                    # 统计信息直方图 (Issue #626)
+                    self._log_verbose("[sql plan monitor report task] report table histograms")
+                    self.report_table_histograms(user_sql, db_name)
+                    # ASH 统计
+                    self._log_verbose(f"[ash report task] report ash, sql: [{sql_ash_top_event}]")
+                    self.report_ash_obversion4(sql_ash_top_event)
+                    self.init_monitor_stat()
+                    # 输出sql_audit的详细信息
+                    self._log_verbose("[sql plan monitor report task] report sql_audit details")
+                    self.report_sql_audit_details(full_audit_sql_by_trace_id_sql)
+                    # 输出算子信息 表+图
+                    self._log_verbose("[sql plan monitor report task] report sql plan monitor dfo")
+                    self.report_sql_plan_monitor_dfo_op(sql_plan_monitor_dfo_op)
+                    # db time
+                    self._log_verbose("[db time display task] report db time display")
+                    self.report_db_time_display_op(sql_plan_monitor_db_time)
+                    # 输出算子信息按 svr 级汇总 表+图
+                    self._log_verbose("[sql plan monitor report task] report sql plan monitor group by server")
+                    self.report_sql_plan_monitor_svr_agg(sql_plan_monitor_svr_agg_v1, sql_plan_monitor_svr_agg_v2)
+                    self.report_fast_preview()
+                    # 输出算子信息按算子维度聚集
+                    self._log_verbose("[sql plan monitor report task] sql plan monitor detail operator")
+                    self.report_sql_plan_monitor_detail_operator_priority(sql_plan_monitor_detail_v1)
+                    # 输出算子信息按线程维度聚集
+                    self._log_verbose("[sql plan monitor report task] sql plan monitor group by priority")
+                    self.reportsql_plan_monitor_detail_svr_priority(sql_plan_monitor_detail_v2)
+
+                    # 输出本报告在租户下使用的 SQL
+                    self.__report("<h4>本报告在租户下使用的 SQL</h4>")
+                    self.__report("<div class='help' style='font-size:11px'>DFO 级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_dfo_op))
+                    self.__report("<div class='help' style='font-size:11px'>机器级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_svr_agg_v1))
+                    self.__report("<div class='help' style='font-size:11px'>线程级<hr /><pre>%s</pre></div><br/>" % (sql_plan_monitor_detail_v1))
+
+                    t = time.localtime(time.time())
+                    self.__report("Report generation time： %s <br>" % (time.strftime("%Y-%m-%d %H:%M:%S", t)))
+                    self.__report("obdiag version: {0} <br>".format(OBDIAG_VERSION))
+                    self.__report("observer version: {0} <br>".format(self.ob_version))
+                    observer_version_commit_id = get_observer_commit_id(self.context)
+                    if observer_version_commit_id:
+                        self.__report("observer commit id: {0} <br>".format(observer_version_commit_id))
+                    self.report_footer()
+                    self._log_verbose("report footer complete")
+                else:
+                    self._log_error(f"The data queried with the specified trace_id {self.trace_id} from {self.sql_audit_name} is empty. Please verify if this trace_id has expired.")
+
+                if resp["skip"]:
+                    return
+                if resp["error"]:
+                    gather_tuples.append((cluster_name, True, resp["error_msg"], 0, int(time.time() - st), "Error:{0}".format(resp["error_msg"]), ""))
+                    return
+                gather_pack_path_dict[cluster_name] = resp["gather_pack_path"]
+                gather_tuples.append((cluster_name, False, "", int(time.time() - st), pack_dir_this_command))
+
+            if getattr(sys, 'frozen', False):
+                absPath = os.path.dirname(sys.executable)
+            else:
+                absPath = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            cs_resources_path = os.path.join(absPath, "resources")
+            self._log_verbose(f"[cs resource path] : {cs_resources_path}")
+            target_resources_path = os.path.join(pack_dir_this_command, "resources")
+            self.copy_cs_resource(cs_resources_path, target_resources_path)
+            self._log_verbose("[sql plan monitor report task] start")
+            handle_plan_monitor_from_ob(self.ob_cluster_name)
+            self._log_verbose("[sql plan monitor report task] end")
+            summary_tuples = self.__get_overall_summary(gather_tuples)
+            self._log_info(summary_tuples)
+            # 将汇总结果持久化记录到文件中
+            FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
+            # return gather_tuples, gather_pack_path_dict
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def __init_db_conn(self, env):
         try:
             # env must be a list from parse_env_display (action="append")
             if not isinstance(env, list):
-                self.stdio.error("Invalid env format. Please use --env key=value format, e.g., --env host=127.0.0.1 --env port=2881 --env user=test --env password=****** --env database=test")
+                self._log_error("Invalid env format. Please use --env key=value format, e.g., --env host=127.0.0.1 --env port=2881 --env user=test --env password=****** --env database=test")
                 return False
 
             env_dict = StringUtils.parse_env_display(env)
@@ -280,18 +285,18 @@ class GatherPlanMonitorHandler(object):
             # Build db_info directly from env_dict parameters (no db_connect string parsing)
             self.db_conn = StringUtils.build_db_info_from_env(env_dict, self.stdio)
             if not self.db_conn:
-                self.stdio.error("Failed to build database connection information from env parameters")
+                self._log_error("Failed to build database connection information from env parameters")
                 return False
 
             if StringUtils.validate_db_info(self.db_conn):
                 self.__init_db_connector()
                 return True
             else:
-                self.stdio.error("db connection information required: --env host=... --env port=... --env user=... --env password=... --env database=...")
+                self._log_error("db connection information required: --env host=... --env port=... --env user=... --env password=... --env database=...")
                 return False
         except Exception as e:
             self.db_connector = self.sys_connector
-            self.stdio.exception("init db connector, error: {0}, please check --env option ".format(e))
+            self._log_error(f"init db connector, error: {e}, please check --env option ")
 
     @staticmethod
     def __get_overall_summary(node_summary_tuple):
@@ -316,7 +321,7 @@ class GatherPlanMonitorHandler(object):
                 data = f.read()
             return data
         except Exception as e:
-            self.stdio.warn(e)
+            self._log_warn(str(e))
             return None
 
     def report_schema(self, sql, tenant_name):
@@ -339,12 +344,15 @@ class GatherPlanMonitorHandler(object):
                         self.context.set_variable('gather_password', self.db_conn.get("password"))
                         self.context.set_variable('store_dir', self.local_stored_path)
                         self.context.set_variable('gather_timestamp', self.gather_timestamp)
-                        handler = GatherTableDumpHandler(self.context, self.local_stored_path, is_inner=True)
+                        # Use new BaseHandler initialization pattern
+                        handler = GatherTableDumpHandler()
+                        handler.init(self.context, store_dir=self.local_stored_path, is_inner=True)
+                        handler.init(self.context, store_dir=self.local_stored_path, is_inner=True)
                         handler.handle()
                     except Exception as e:
                         pass
             table_info_file = os.path.join(self.local_stored_path, "obdiag_tabledump_result_{0}.txt".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
-            self.stdio.verbose("table info file path:{0}".format(table_info_file))
+            self._log_verbose(f"table info file path:{table_info_file}")
             table_info = self.get_table_info(table_info_file)
             if table_info:
                 schemas = schemas + "<pre style='margin:20px;border:1px solid gray;'>%s</pre>" % table_info
@@ -367,8 +375,8 @@ class GatherPlanMonitorHandler(object):
             self.__report("<div><h2 id='schema_anchor'>SCHEMA 信息</h2><div id='schema' style='display: none'>" + schemas + "</div></div>")
             cursor.close()
         except Exception as e:
-            self.stdio.exception("report table schema failed %s" % sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"report table schema failed {sql}")
+            self._log_error(repr(e))
             pass
 
     def report_pre(self, s):
@@ -382,14 +390,14 @@ class GatherPlanMonitorHandler(object):
             header = GlobalHtmlMeta().get_value(key="sql_plan_monitor_report_header")
         with open(self.report_file_path, 'w') as f:
             f.write(header)
-        self.stdio.verbose("report header complete")
+        self._log_verbose("report header complete")
 
     def init_monitor_stat(self):
         sql = "select ID,NAME,TYPE from " + ("SYS." if self.tenant_mode == "oracle" else "oceanbase.") + "v$sql_monitor_statname order by ID"
         data = self.sys_connector.execute_sql(sql)
         for item in data:
             self.STAT_NAME[item[0]] = {"type": item[2], "name": item[1]}
-        self.stdio.verbose("init sql plan monitor stat complete")
+        self._log_verbose("init sql plan monitor stat complete")
 
     def otherstat_detail_explain_item(self, item, n, v):
         try:
@@ -650,7 +658,7 @@ class GatherPlanMonitorHandler(object):
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)
-        self.stdio.verbose("report SQL_PLAN_MONITOR SQC operator priority start, DATA: %s", data)
+        self._log_verbose(f"report SQL_PLAN_MONITOR SQC operator priority start, DATA: {data}")
         self.__report(data)
 
     def report_svr_agg_graph_data_obversion4(self, ident, cursor, title=''):
@@ -676,7 +684,7 @@ class GatherPlanMonitorHandler(object):
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)
-        self.stdio.verbose("report SQL_PLAN_MONITOR SQC operator priority start, DATA: %s", data)
+        self._log_verbose(f"report SQL_PLAN_MONITOR SQC operator priority start, DATA: {data}")
         self.__report(data)
 
     def report_fast_preview(self):
@@ -700,7 +708,7 @@ class GatherPlanMonitorHandler(object):
             </script>
             '''
         self.__report(content)
-        self.stdio.verbose("report SQL_PLAN_MONITOR fast preview complete")
+        self._log_verbose("report SQL_PLAN_MONITOR fast preview complete")
 
     def report_footer(self):
         footer = GlobalHtmlMeta().get_value(key="sql_plan_monitor_report_footer")
@@ -730,7 +738,7 @@ class GatherPlanMonitorHandler(object):
                 self.tenant_mode = "mysql"
                 self.sys_database = "oceanbase"
 
-                self.stdio.verbose(f"Detected MySQL mode successful, Database version: {ob_version}")
+                self._log_verbose(f"Detected MySQL mode successful, Database version: {ob_version}")
                 return True
             else:
                 raise ValueError("Failed to match MySQL version")
@@ -752,12 +760,12 @@ class GatherPlanMonitorHandler(object):
                     self.tenant_mode = "oracle"
                     self.sys_database = "SYS"
 
-                    self.stdio.verbose(f"Detected Oracle mode successful, Database version: {version}")
+                    self._log_verbose(f"Detected Oracle mode successful, Database version: {version}")
                     return True
                 else:
                     raise ValueError("Failed to match Oracle version")
             except Exception as oe:
-                self.stdio.error(f"Error detecting database mode: {oe}")
+                self._log_error(f"Error detecting database mode: {oe}")
 
     def init_resp(self):
         """
@@ -990,7 +998,7 @@ class GatherPlanMonitorHandler(object):
                 # 创建单条记录卡片
                 record_html = f'<div class="card mb-3">'
                 record_html += f'<div class="card-header d-flex justify-content-between align-items-center">'
-                record_html += f'<span><strong>sql_audit (\G)</strong></span>'
+                record_html += f'<span><strong>sql_audit (\\G)</strong></span>'
                 record_html += f'<div>'
                 record_html += f'<button id="toggle-btn-0" class="btn btn-sm btn-outline-secondary me-2" onclick="toggleRecord(0)"><span>► 展开</span></button>'
                 record_html += f'<button id="copy-btn-0" class="btn btn-sm btn-outline-primary" onclick="copyRecord(0)" style="display: none;"><span>复制</span></button>'
@@ -1015,49 +1023,49 @@ class GatherPlanMonitorHandler(object):
             combined_html += '</div>'
 
             self.__report(f"<div><h2 id='sql_audit_table_anchor'>SQL_AUDIT 信息</h2><div class='v' id='sql_audit_table' style='display: none'>{combined_html}</div></div>")
-        self.stdio.verbose("report full sql audit complete")
+        self._log_verbose("report full sql audit complete")
 
     # plan cache
     def report_plan_cache(self, sql):
         try:
             cursor_plan_explain = self.sys_connector.execute_sql_return_cursor(sql)
-            self.stdio.verbose("select plan_explain from ob complete")
+            self._log_verbose("select plan_explain from ob complete")
             self.report_pre(sql)
-            self.stdio.verbose("report plan_explain_sql complete")
+            self._log_verbose("report plan_explain_sql complete")
 
             data_plan_explain = from_db_cursor(cursor_plan_explain)
             data_plan_explain.align = 'l'
             self.report_pre(data_plan_explain)
-            self.stdio.verbose("report plan_explain complete")
+            self._log_verbose("report plan_explain complete")
         except Exception as e:
-            self.stdio.exception("plan cache> %s" % sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"plan cache> {sql}")
+            self._log_error(repr(e))
             pass
 
     # sql_audit 概要
     def report_sql_audit(self):
         sql = self.sql_audit_by_trace_id_limit1_sql()
-        self.stdio.verbose("select sql_audit from ob with SQL: %s", sql)
+        self._log_verbose(f"select sql_audit from ob with SQL: {sql}")
         try:
             sql_audit_result = self.sys_connector.execute_sql_pretty(sql)
             if not sql_audit_result:
-                self.stdio.error("failed to find the related sql_audit for the given trace_id:{0}", self.trace_id)
+                self._log_error(f"failed to find the related sql_audit for the given trace_id:{self.trace_id}")
                 return False
-            self.stdio.verbose("sql_audit_result: %s", sql_audit_result)
-            self.stdio.verbose("report sql_audit_result to file start ...")
+            self._log_verbose(f"sql_audit_result: {sql_audit_result}")
+            self._log_verbose("report sql_audit_result to file start ...")
             self.__report(sql_audit_result.get_html_string())
-            self.stdio.verbose("report sql_audit_result end")
+            self._log_verbose("report sql_audit_result end")
             return True
         except Exception as e:
-            self.stdio.exception("sql_audit> %s" % sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"sql_audit> {sql}")
+            self._log_error(repr(e))
 
     def report_plan_explain(self, db_name, raw_sql):
         explain_sql = "explain extended %s" % raw_sql
         try:
             sql_explain_cursor = self.db_connector.execute_sql_return_cursor(explain_sql)
-            self.stdio.verbose("execute SQL: %s", explain_sql)
-            sql_explain_result_sql = "%s" % explain_sql
+            self._log_verbose(f"execute SQL: {explain_sql}")
+            sql_explain_result_sql = f"{explain_sql}"
             sql_explain_result = from_db_cursor(sql_explain_cursor)
 
             if self.ob_major_version >= 4:
@@ -1066,40 +1074,40 @@ class GatherPlanMonitorHandler(object):
                 self.report_optimization_info_warn(optimization_warn)
 
             # output explain result
-            self.stdio.verbose("report sql_explain_result_sql complete")
+            self._log_verbose("report sql_explain_result_sql complete")
             self.report_pre(sql_explain_result_sql)
-            self.stdio.verbose("report sql_explain_result_sql complete")
+            self._log_verbose("report sql_explain_result_sql complete")
             sql_explain_result.align = 'l'
             self.report_pre(sql_explain_result)
-            self.stdio.verbose("report sql_explain_result complete")
+            self._log_verbose("report sql_explain_result complete")
         except Exception as e:
-            self.stdio.exception("plan explain> %s" % explain_sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"plan explain> {explain_sql}")
+            self._log_error(repr(e))
             pass
 
     def report_sql_plan_monitor_dfo_op(self, sql):
         data_sql_plan_monitor_dfo_op = self.sys_connector.execute_sql_pretty(sql)
         if len(data_sql_plan_monitor_dfo_op.rows) == 0:
-            self.stdio.warn("failed to find sql_plan_monitor data, please add hint /*+ monitor*/ to your SQL before executing it.")
+            self._log_warn("failed to find sql_plan_monitor data, please add hint /*+ monitor*/ to your SQL before executing it.")
         self.__report("<div><h2 id='agg_table_anchor'>SQL_PLAN_MONITOR DFO 级调度时序汇总</h2><div class='v' id='agg_table' style='display: none'>" + data_sql_plan_monitor_dfo_op.get_html_string() + "</div></div>")
-        self.stdio.verbose("report SQL_PLAN_MONITOR DFO complete")
+        self._log_verbose("report SQL_PLAN_MONITOR DFO complete")
         cursor_sql_plan_monitor_dfo_op = self.sys_connector.execute_sql_return_cursor_dictionary(sql)
         if self.ob_major_version >= 4:
             self.report_dfo_sched_agg_graph_data_obversion4(cursor_sql_plan_monitor_dfo_op, '调度时序图')
         else:
             self.report_dfo_sched_agg_graph_data(cursor_sql_plan_monitor_dfo_op, '调度时序图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR DFO SCHED complete")
+        self._log_verbose("report SQL_PLAN_MONITOR DFO SCHED complete")
         cursor_sql_plan_monitor_dfo_op = self.sys_connector.execute_sql_return_cursor_dictionary(sql)
         if self.ob_major_version >= 4:
             self.report_dfo_agg_graph_data_obversion4(cursor_sql_plan_monitor_dfo_op, '数据时序图')
         else:
             self.report_dfo_agg_graph_data(cursor_sql_plan_monitor_dfo_op, '数据时序图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR DFO graph data complete")
+        self._log_verbose("report SQL_PLAN_MONITOR DFO graph data complete")
 
     def report_db_time_display_op(self, sql):
         if self.ob_major_version >= 4:
             self.report_db_time_display_obversion4(sql)
-            self.stdio.verbose("report db time display complete")
+            self._log_verbose("report db time display complete")
 
     def report_sql_plan_monitor_svr_agg(self, sql_plan_monitor_svr_agg_v1, sql_plan_monitor_svr_agg_v2):
         cursor_sql_plan_monitor_svr_agg = self.sys_connector.execute_sql_return_cursor(sql_plan_monitor_svr_agg_v1)
@@ -1108,19 +1116,19 @@ class GatherPlanMonitorHandler(object):
             + from_db_cursor(cursor_sql_plan_monitor_svr_agg).get_html_string()
             + "</div><div class='shortcut'><a href='#svr_agg_serial_v1'>Goto 算子优先</a> <a href='#svr_agg_serial_v2'>Goto 机器优先</a></div></div>"
         )
-        self.stdio.verbose("report SQL_PLAN_MONITOR SQC complete")
+        self._log_verbose("report SQL_PLAN_MONITOR SQC complete")
         cursor_sql_plan_monitor_svr_agg_v1 = self.sys_connector.execute_sql_return_cursor_dictionary(sql_plan_monitor_svr_agg_v2)
         if self.ob_major_version >= 4:
             self.report_svr_agg_graph_data_obversion4('svr_agg_serial_v1', cursor_sql_plan_monitor_svr_agg_v1, '算子优先视图')
         else:
             self.report_svr_agg_graph_data('svr_agg_serial_v1', cursor_sql_plan_monitor_svr_agg_v1, '算子优先视图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR SQC operator priority complete")
+        self._log_verbose("report SQL_PLAN_MONITOR SQC operator priority complete")
         cursor_data_sql_plan_monitor_svr_agg_v2 = self.sys_connector.execute_sql_return_cursor_dictionary(sql_plan_monitor_svr_agg_v2)
         if self.ob_major_version >= 4:
             self.report_svr_agg_graph_data('svr_agg_serial_v2', cursor_data_sql_plan_monitor_svr_agg_v2, '机器优先视图')
         else:
             self.report_svr_agg_graph_data('svr_agg_serial_v2', cursor_data_sql_plan_monitor_svr_agg_v2, '机器优先视图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR SQC server priority complete")
+        self._log_verbose("report SQL_PLAN_MONITOR SQC server priority complete")
 
     def report_sql_plan_monitor_detail_operator_priority(self, sql):
         cursor_sql_plan_monitor_detail = self.sys_connector.execute_sql_return_cursor(sql)
@@ -1129,13 +1137,13 @@ class GatherPlanMonitorHandler(object):
             + ("no result in --fast mode" if self.enable_fast_dump else from_db_cursor(cursor_sql_plan_monitor_detail).get_html_string())
             + "</div><div class='shortcut'><a href='#detail_serial_v1'>Goto 算子优先</a> <a href='#detail_serial_v2'>Goto 线程优先</a></div></div>"
         )
-        self.stdio.verbose("report SQL_PLAN_MONITOR details complete")
+        self._log_verbose("report SQL_PLAN_MONITOR details complete")
         cursor_sql_plan_monitor_detail_v1 = self.sys_connector.execute_sql_return_cursor_dictionary(sql)
         if self.ob_major_version >= 4:
             self.report_detail_graph_data_obversion4("detail_serial_v1", cursor_sql_plan_monitor_detail_v1, '算子优先视图')
         else:
             self.report_detail_graph_data("detail_serial_v1", cursor_sql_plan_monitor_detail_v1, '算子优先视图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR details operator priority complete")
+        self._log_verbose("report SQL_PLAN_MONITOR details operator priority complete")
 
     def reportsql_plan_monitor_detail_svr_priority(self, sql):
         cursor_sql_plan_monitor_detail_v2 = self.sys_connector.execute_sql_return_cursor_dictionary(sql)
@@ -1143,24 +1151,24 @@ class GatherPlanMonitorHandler(object):
             self.report_detail_graph_data_obversion4("detail_serial_v2", cursor_sql_plan_monitor_detail_v2, '线程优先视图')
         else:
             self.report_detail_graph_data("detail_serial_v2", cursor_sql_plan_monitor_detail_v2, '线程优先视图')
-        self.stdio.verbose("report SQL_PLAN_MONITOR details server priority complete")
+        self._log_verbose("report SQL_PLAN_MONITOR details server priority complete")
 
     def report_ash_obversion4(self, ash_top_event_sql):
         ash_report = ""
         try:
             if self.ob_major_version >= 4:
                 cursor = self.db_connector.execute_sql_return_cursor(ash_top_event_sql)
-                self.stdio.verbose("execute SQL: %s", ash_top_event_sql)
+                self._log_verbose(f"execute SQL: {ash_top_event_sql}")
                 s = from_db_cursor(cursor)
                 s.align = 'l'
                 ash_report = ash_report + "<pre style='margin:20px;border:1px solid gray;'>%s\n%s</pre>" % (ash_top_event_sql, s)
                 self.__report("<div><h2 id='ash_anchor'>ASH 信息</h2><div id='ash' style='display: none'>" + ash_report + "</div></div>")
-                self.stdio.verbose("ash report complete")
+                self._log_verbose("ash report complete")
             else:
-                self.stdio.verbose("ash report requires the OB version to be greater than 4.0. Your version: {0} does not meet this requirement.".format(self.ob_major_version))
+                self._log_verbose(f"ash report requires the OB version to be greater than 4.0. Your version: {self.ob_major_version} does not meet this requirement.")
         except Exception as e:
-            self.stdio.exception("ash report> %s" % ash_top_event_sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"ash report> {ash_top_event_sql}")
+            self._log_error(repr(e))
             pass
 
     # DB Time display
@@ -1168,36 +1176,36 @@ class GatherPlanMonitorHandler(object):
         try:
             if self.ob_major_version >= 4:
                 cursor = self.db_connector.execute_sql_return_cursor_dictionary(sql_plan_monitor_db_time)
-                self.stdio.verbose("execute SQL: %s", sql_plan_monitor_db_time)
+                self._log_verbose(f"execute SQL: {sql_plan_monitor_db_time}")
                 self.report_dfo_agg_db_time_graph_data_obversion4(cursor, 'DB Time 算子真实耗时分析图')
-                self.stdio.verbose("DB Time display complete")
+                self._log_verbose("DB Time display complete")
             else:
-                self.stdio.verbose("DB Time display requires the OB version to be greater than 4.0. Your version: {0} does not meet this requirement.".format(self.ob_major_version))
+                self._log_verbose(f"DB Time display requires the OB version to be greater than 4.0. Your version: {self.ob_major_version} does not meet this requirement.")
         except Exception as e:
-            self.stdio.exception("DB Time display> %s" % sql_plan_monitor_db_time)
-            self.stdio.exception(repr(e))
+            self._log_error(f"DB Time display> {sql_plan_monitor_db_time}")
+            self._log_error(repr(e))
             pass
 
     def report_display_cursor_obversion4(self, display_cursor_sql):
         if self.skip and self.skip == "dbms_xplan":
-            self.stdio.warn("you have set the option --skip to skip gather dbms_xplan")
+            self._log_warn("you have set the option --skip to skip gather dbms_xplan")
             return
         try:
             if not StringUtils.compare_versions_lower(self.ob_version, "4.2.5.0"):
-                self.stdio.print("execute SQL: %s", display_cursor_sql)
+                self._log_info(f"execute SQL: {display_cursor_sql}")
                 plan_result = self.db_connector.execute_sql_pretty(display_cursor_sql)
                 if plan_result:
                     plan_result.align = 'l'
                     self.report_pre("obclient> " + display_cursor_sql)
                     self.report_pre(plan_result)
-                    self.stdio.verbose("display_cursor report complete")
+                    self._log_verbose("display_cursor report complete")
                 else:
-                    self.stdio.warn("the result of display_cursor is None")
+                    self._log_warn("the result of display_cursor is None")
             else:
-                self.stdio.verbose("display_cursor report requires the OB version to be greater than 4.2.5.0 Your version: {0} does not meet this requirement.".format(self.ob_major_version))
+                self._log_verbose(f"display_cursor report requires the OB version to be greater than 4.2.5.0 Your version: {self.ob_major_version} does not meet this requirement.")
         except Exception as e:
-            self.stdio.exception("display_cursor report> %s" % display_cursor_sql)
-            self.stdio.exception(repr(e))
+            self._log_error(f"display_cursor report> {display_cursor_sql}")
+            self._log_error(repr(e))
             pass
 
     def report_optimization_info_warn(self, text):
@@ -1205,7 +1213,7 @@ class GatherPlanMonitorHandler(object):
             content = '<div class="statsWarning">' + text + '</div>'
             self.__report(content)
         else:
-            self.stdio.verbose("the result of optimization_info_warn is None")
+            self._log_verbose("the result of optimization_info_warn is None")
 
     def get_stat_stale_yes_tables(self, sql):
         try:
@@ -1217,7 +1225,7 @@ class GatherPlanMonitorHandler(object):
                     db_name = self.db_conn.get("database")
                 self.db_tables.append((db_name, table_name))
         except Exception as e:
-            self.stdio.warn(f"parse_tables failed, err: {str(e)}")
+            self._log_warn(f"parse_tables failed, err: {str(e)}")
         stale_tables = []
         for db, table in self.db_tables:
             sql = """
@@ -1230,12 +1238,12 @@ class GatherPlanMonitorHandler(object):
             try:
                 result = self.db_connector.execute_sql(sql)
                 is_stale = result[0][0] if result else 'NO'
-                self.stdio.print(f"{db}.{table} -> oceanbase.DBA_OB_TABLE_STAT_STALE_INFO IS_STALE={is_stale}")
+                self._log_info(f"{db}.{table} -> oceanbase.DBA_OB_TABLE_STAT_STALE_INFO IS_STALE={is_stale}")
                 if is_stale == 'YES':
                     stale_tables.append(table)
 
             except Exception as e:
-                self.stdio.warn(f"execute SQL: {sql} {str(e)}")
+                self._log_warn(f"execute SQL: {sql} {str(e)}")
                 continue
         return stale_tables
 
@@ -1249,7 +1257,7 @@ class GatherPlanMonitorHandler(object):
             parser = SQLTableExtractor()
             parse_tables = parser.parse(sql)
             if not parse_tables:
-                self.stdio.verbose("No tables found in SQL, skip collation check")
+                self._log_verbose("No tables found in SQL, skip collation check")
                 return
 
             collation_info = []
@@ -1260,7 +1268,7 @@ class GatherPlanMonitorHandler(object):
                     db_name = default_db_name or (self.db_conn.get("database") if self.db_conn else None)
 
                 if not db_name:
-                    self.stdio.warn(f"Database name is empty for table {table_name}, skip collation check")
+                    self._log_warn(f"Database name is empty for table {table_name}, skip collation check")
                     continue
 
                 try:
@@ -1323,12 +1331,12 @@ class GatherPlanMonitorHandler(object):
                                 collation_info.append({'database': table_schema, 'table': table_name_col, 'column': column_name, 'data_type': data_type, 'collation': collation_name, 'charset': charset_name})
                                 all_collations.add(collation_name)
                 except Exception as e:
-                    self.stdio.warn(f"Failed to check collation for table {db_name}.{table_name}: {str(e)}")
+                    self._log_warn(f"Failed to check collation for table {db_name}.{table_name}: {str(e)}")
                     continue
 
             # Generate report
             if not collation_info:
-                self.stdio.verbose("No collation information found, skip collation check report")
+                self._log_verbose("No collation information found, skip collation check report")
                 return
 
             # Check if all collations are the same
@@ -1362,7 +1370,7 @@ class GatherPlanMonitorHandler(object):
                 warning_content += "</div>"
 
                 self.__report(warning_content)
-                self.stdio.warn("Collation inconsistency detected: {0} different collation(s) found".format(len(all_collations)))
+                self._log_warn(f"Collation inconsistency detected: {len(all_collations)} different collation(s) found")
             else:
                 # All collations are the same
                 info_content = "<div style='background-color: #e8f5e9; padding: 10px; margin: 10px 0; border-left: 4px solid #4caf50;'>"
@@ -1372,10 +1380,10 @@ class GatherPlanMonitorHandler(object):
                 info_content += "</div>"
 
                 self.__report(info_content)
-                self.stdio.verbose("Collation check passed: all columns use collation {0}".format(list(all_collations)[0]))
+                self._log_verbose(f"Collation check passed: all columns use collation {list(all_collations)[0]}")
 
         except Exception as e:
-            self.stdio.exception("report table collation check failed: {0}".format(str(e)))
+            self._log_error(f"report table collation check failed: {str(e)}")
             pass
 
     def sql_plan_monitor_histogram_sql(self, db_name, table_name):
@@ -1407,12 +1415,12 @@ class GatherPlanMonitorHandler(object):
             parser = SQLTableExtractor()
             parse_tables = parser.parse(sql)
             if not parse_tables:
-                self.stdio.verbose("No tables found in SQL, skip histogram report")
+                self._log_verbose("No tables found in SQL, skip histogram report")
                 return
 
             # OB 4.x has DBA_TAB_HISTOGRAMS; lower versions may not.
             if self.ob_major_version < 4:
-                self.stdio.verbose("Histogram views (DBA_TAB_HISTOGRAMS) are supported from OB 4.x, skip")
+                self._log_verbose("Histogram views (DBA_TAB_HISTOGRAMS) are supported from OB 4.x, skip")
                 return
 
             section_added = False
@@ -1420,29 +1428,29 @@ class GatherPlanMonitorHandler(object):
                 if not db_name:
                     db_name = default_db_name or (self.db_conn.get("database") if self.db_conn else None)
                 if not db_name:
-                    self.stdio.warn("Database name is empty for table {0}, skip histogram".format(table_name))
+                    self._log_warn(f"Database name is empty for table {table_name}, skip histogram")
                     continue
 
                 try:
                     hist_sql = self.sql_plan_monitor_histogram_sql(db_name, table_name)
-                    self.stdio.verbose("execute histogram SQL for {0}.{1}".format(db_name, table_name))
-                    self.stdio.verbose("hist_sql: %s", hist_sql)
+                    self._log_verbose(f"execute histogram SQL for {db_name}.{table_name}")
+                    self._log_verbose(f"hist_sql: {hist_sql}")
                     cursor = self.db_connector.execute_sql_return_cursor(hist_sql)
                     rows = cursor.fetchall()
                     cursor.close()
-                    self.stdio.verbose("rows: %s", rows)
+                    self._log_verbose(f"rows: {rows}")
                     if rows:
                         if not section_added:
                             self.__report("<div><h2 id='histogram_anchor'>统计信息直方图 (Histogram)</h2>")
                             section_added = True
-                        self.stdio.verbose("section_added: %s", section_added)
+                        self._log_verbose(f"section_added: {section_added}")
                         cursor_tbl = self.db_connector.execute_sql_return_cursor(hist_sql)
                         tbl = from_db_cursor(cursor_tbl)
                         tbl.align = 'l'
                         self.__report("<h3>{0}.{1}</h3>".format(db_name, table_name))
                         self.__report("<div class='v' style='display: none'>" + tbl.get_html_string() + "</div>")
                         cursor_tbl.close()
-                        self.stdio.verbose("reported table-level histogram for {0}.{1}, rows: {2}".format(db_name, table_name, len(rows)))
+                        self._log_verbose(f"reported table-level histogram for {db_name}.{table_name}, rows: {len(rows)}")
 
                     part_sql = self.sql_plan_monitor_part_histogram_sql(db_name, table_name)
                     cursor_part = self.db_connector.execute_sql_return_cursor(part_sql)
@@ -1459,15 +1467,15 @@ class GatherPlanMonitorHandler(object):
                         self.__report("<h3>{0}.{1} (分区直方图 DBA_PART_HISTOGRAMS)</h3>".format(db_name, table_name))
                         self.__report("<div class='v' style='display: none'>" + tbl_part.get_html_string() + "</div>")
                         cursor_part_tbl.close()
-                        self.stdio.verbose("reported part histogram for {0}.{1}, rows: {2}".format(db_name, table_name, len(part_rows)))
+                        self._log_verbose(f"reported part histogram for {db_name}.{table_name}, rows: {len(part_rows)}")
 
                 except Exception as e:
-                    self.stdio.warn("Failed to get histogram for {0}.{1}: {2}".format(db_name or "", table_name, str(e)))
+                    self._log_warn(f"Failed to get histogram for {db_name or ''}.{table_name}: {str(e)}")
                     continue
 
             if section_added:
                 self.__report("</div>")
 
         except Exception as e:
-            self.stdio.exception("report table histograms failed: {0}".format(str(e)))
+            self._log_error(f"report table histograms failed: {str(e)}")
             pass

@@ -21,6 +21,7 @@ import json
 import yaml
 from typing import Dict, List, Optional
 
+from src.common.base_handler import BaseHandler
 from src.handler.ai.openai_client import ObdiagAIClient
 from src.handler.ai.obi_client import OBIClient
 from src.common.tool import Util
@@ -45,7 +46,7 @@ except ImportError:
     PROMPT_TOOLKIT_AVAILABLE = False
 
 
-class AiAssistantHandler:
+class AiAssistantHandler(BaseHandler):
     """AI Assistant interactive handler"""
 
     BETA_WARNING = """
@@ -84,10 +85,8 @@ class AiAssistantHandler:
     # AI config file path
     AI_CONFIG_PATH = os.path.expanduser("~/.obdiag/ai.yml")
 
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
-        self.options = context.options
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.ai_client = None
         self.obi_client = None
         self.conversation_history: List[Dict] = []
@@ -146,11 +145,11 @@ class AiAssistantHandler:
             try:
                 with open(config_path, 'r', encoding='utf-8') as f:
                     ai_config = yaml.safe_load(f) or {}
-                self.stdio.verbose(f"Loaded AI config from {config_path}")
+                self._log_verbose(f"Loaded AI config from {config_path}")
             except Exception as e:
-                self.stdio.warn(f"Failed to load AI config from {config_path}: {e}")
+                self._log_warn(f"Failed to load AI config from {config_path}: {e}")
         else:
-            self.stdio.verbose(f"AI config file not found: {config_path}, using defaults")
+            self._log_verbose(f"AI config file not found: {config_path}, using defaults")
 
         # Merge with user configuration
         llm_config = {**default_config["llm"], **ai_config.get("llm", {})}
@@ -175,7 +174,7 @@ class AiAssistantHandler:
                     if parsed:  # Only use if non-empty
                         mcp_config["servers"] = parsed
                 except json.JSONDecodeError as e:
-                    self.stdio.warn(f"Failed to parse MCP servers JSON: {e}, using built-in server")
+                    self._log_warn(f"Failed to parse MCP servers JSON: {e}, using built-in server")
                     mcp_config["servers"] = {}
             elif isinstance(servers_value, dict) and servers_value:
                 # Direct dict format (non-empty)
@@ -204,7 +203,7 @@ class AiAssistantHandler:
         base_url = llm_config.get("base_url") or os.getenv("OPENAI_BASE_URL") or None
 
         # Get config path
-        config_path = Util.get_option(self.options, "c") or os.path.expanduser("~/.obdiag/config.yml")
+        config_path = self._get_option("c") or os.path.expanduser("~/.obdiag/config.yml")
 
         # Get MCP settings
         use_mcp = mcp_config.get("enabled", True)
@@ -227,14 +226,14 @@ class AiAssistantHandler:
                     # Test connection
                     test_result = self.obi_client.test_connection()
                     if test_result.get("success"):
-                        self.stdio.verbose("OBI client initialized successfully")
+                        self._log_verbose("OBI client initialized successfully")
                     else:
-                        self.stdio.warn(f"OBI client initialized but connection test failed: {test_result.get('error')}")
+                        self._log_warn(f"OBI client initialized but connection test failed: {test_result.get('error')}")
                 else:
-                    self.stdio.warn("OBI is enabled but not properly configured (missing app_code or cookie)")
+                    self._log_warn("OBI is enabled but not properly configured (missing app_code or cookie)")
                     self.obi_client = None
             except Exception as e:
-                self.stdio.warn(f"Failed to initialize OBI client: {e}")
+                self._log_warn(f"Failed to initialize OBI client: {e}")
                 self.obi_client = None
         else:
             self.obi_client = None
@@ -271,11 +270,11 @@ class AiAssistantHandler:
                 self.console.print(md)
             except Exception as e:
                 # Fallback to plain text if rendering fails
-                self.stdio.verbose(f"Markdown rendering failed: {e}")
-                self.stdio.print(text)
+                self._log_verbose(f"Markdown rendering failed: {e}")
+                self._log_info(text)
         else:
             # Fallback to plain text if rich is not available
-            self.stdio.print(text)
+            self._log_info(text)
 
     def _show_welcome(self, config: Dict):
         """Show welcome message and beta warning"""
@@ -285,12 +284,12 @@ class AiAssistantHandler:
             self._clear_screen()
 
         if ui_config.get("show_beta_warning", True):
-            self.stdio.print(self.BETA_WARNING)
-            self.stdio.print("")
+            self._log_info(self.BETA_WARNING)
+            self._log_info("")
 
         if ui_config.get("show_welcome", True):
-            self.stdio.print(self.WELCOME_MESSAGE)
-            self.stdio.print("")
+            self._log_info(self.WELCOME_MESSAGE)
+            self._log_info("")
 
     def _show_help(self):
         """Show help information"""
@@ -309,7 +308,7 @@ You can also ask me questions in natural language, such as:
   - "检查IO性能"
   - "执行根因分析"
 """
-        self.stdio.print(help_text)
+        self._log_info(help_text)
 
     def _show_tools(self):
         """Show available tools"""
@@ -338,7 +337,7 @@ Available diagnostic tools:
 🛠️ Tools:
   - tool_io_performance: Check disk IO performance
 """
-        self.stdio.print(tools_text)
+        self._log_info(tools_text)
 
     def _show_loaded_tools(self):
         """Show loaded MCP tools information"""
@@ -347,14 +346,14 @@ Available diagnostic tools:
             if self.obi_client and self.obi_client.is_configured():
                 test_result = self.obi_client.test_connection()
                 if test_result.get("success"):
-                    self.stdio.print("🔍 OBI (OceanBase Intelligence): ✓ Connected")
+                    self._log_info("🔍 OBI (OceanBase Intelligence): ✓ Connected")
                 else:
-                    self.stdio.print("🔍 OBI (OceanBase Intelligence): ✗ Connection failed")
+                    self._log_info("🔍 OBI (OceanBase Intelligence): ✗ Connection failed")
             elif self.obi_client:
-                self.stdio.print("🔍 OBI (OceanBase Intelligence): ⚠ Not configured")
+                self._log_info("🔍 OBI (OceanBase Intelligence): ⚠ Not configured")
             else:
-                self.stdio.print("🔍 OBI (OceanBase Intelligence): ○ Disabled")
-            self.stdio.print("")
+                self._log_info("🔍 OBI (OceanBase Intelligence): ○ Disabled")
+            self._log_info("")
 
             # Check external MCP client first
             if self.ai_client and self.ai_client.mcp_client and self.ai_client.mcp_client.is_connected():
@@ -362,55 +361,57 @@ Available diagnostic tools:
                 connected_servers = self.ai_client.mcp_client.get_connected_servers()
                 servers_info = self.ai_client.mcp_client.get_server_info()
 
-                self.stdio.print("🔌 MCP Servers ({0} connected):".format(len(connected_servers)))
+                self._log_info(f"🔌 MCP Servers ({len(connected_servers)} connected):")
                 for server_name in connected_servers:
                     info = servers_info.get(server_name, {})
                     version = info.get("version", "unknown")
-                    self.stdio.print("   • {0} (v{1})".format(server_name, version))
+                    self._log_info(f"   • {server_name} (v{version})")
 
                 # List all tools
                 tools = self.ai_client.mcp_client.list_tools()
-                self.stdio.print("\n📦 Loaded {0} tools via MCP protocol:".format(len(tools)))
+                self._log_info(f"\n📦 Loaded {len(tools)} tools via MCP protocol:")
                 for tool in tools:
                     tool_name = tool.get("name", "")
-                    self.stdio.print("   • {0}".format(tool_name))
-                self.stdio.print("")
+                    self._log_info(f"   • {tool_name}")
+                self._log_info("")
             # Check built-in MCP server
             elif self.ai_client and self.ai_client.builtin_mcp_server:
-                self.stdio.print("🔌 Using built-in MCP server")
+                self._log_info("🔌 Using built-in MCP server")
 
                 # List tools from built-in server
                 tools = self.ai_client.builtin_mcp_server.tools
-                self.stdio.print("\n📦 Loaded {0} tools:".format(len(tools)))
+                self._log_info(f"\n📦 Loaded {len(tools)} tools:")
                 for tool in tools:
                     tool_name = tool.get("name", "")
-                    self.stdio.print("   • {0}".format(tool_name))
-                self.stdio.print("")
+                    self._log_info(f"   • {tool_name}")
+                self._log_info("")
             else:
-                self.stdio.warn("⚠️  No MCP server connected. Tools will not be available.")
-                self.stdio.print("")
+                self._log_warn("⚠️  No MCP server connected. Tools will not be available.")
+                self._log_info("")
         except Exception as e:
-            self.stdio.verbose("Failed to show loaded tools: {0}".format(e))
+            self._log_verbose(f"Failed to show loaded tools: {e}")
 
     def _show_history(self):
         """Show conversation history"""
         if not self.conversation_history:
-            self.stdio.print("No conversation history.\n")
+            self._log_info("No conversation history.\n")
             return
 
-        self.stdio.print("\n=== Conversation History ===\n")
+        self._log_info("\n=== Conversation History ===\n")
         for i, msg in enumerate(self.conversation_history, 1):
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             if role == "user":
-                self.stdio.print(f"[{i}] User: {content}\n")
+                self._log_info(f"[{i}] User: {content}\n")
             elif role == "assistant":
                 display_content = content[:200] + "..." if len(content) > 200 else content
-                self.stdio.print(f"[{i}] Assistant: {display_content}\n")
-        self.stdio.print("===========================\n")
+                self._log_info(f"[{i}] Assistant: {display_content}\n")
+        self._log_info("===========================\n")
 
-    def handle(self):
+    def handle(self) -> ObdiagResult:
         """Main handler method"""
+        self._validate_initialized()
+
         try:
             # Load configuration
             config = self._load_config()
@@ -419,18 +420,18 @@ Available diagnostic tools:
             self._show_welcome(config)
 
             # Initialize AI client
-            self.stdio.verbose("Initializing AI client...")
+            self._log_verbose("Initializing AI client...")
             self._init_ai_client(config)
-            self.stdio.verbose("AI client initialized successfully")
+            self._log_verbose("AI client initialized successfully")
 
             # Show loaded tools info
             self._show_loaded_tools()
 
             # Debug: show if prompt_toolkit is available
             if PROMPT_TOOLKIT_AVAILABLE:
-                self.stdio.verbose("Using prompt_toolkit for input (CJK character support enabled)")
+                self._log_verbose("Using prompt_toolkit for input (CJK character support enabled)")
             else:
-                self.stdio.verbose("prompt_toolkit not available, using standard input")
+                self._log_verbose("prompt_toolkit not available, using standard input")
 
             # Interactive loop
             ui_config = config["ui"]
@@ -450,14 +451,14 @@ Available diagnostic tools:
 
                     # Handle special commands
                     if user_input.lower() in ["exit", "quit", "q"]:
-                        self.stdio.print("\nGoodbye! Have a nice day!\n")
+                        self._log_info("\nGoodbye! Have a nice day!\n")
                         break
                     elif user_input.lower() in ["help", "?"]:
                         self._show_help()
                         continue
                     elif user_input.lower() == "clear":
                         self.conversation_history = []
-                        self.stdio.print("Conversation history cleared.\n")
+                        self._log_info("Conversation history cleared.\n")
                         continue
                     elif user_input.lower() == "history":
                         self._show_history()
@@ -467,17 +468,17 @@ Available diagnostic tools:
                         continue
 
                     # Process user input with AI
-                    self.stdio.print("")  # New line
+                    self._log_info("")  # New line
                     self.stdio.start_loading("Thinking...")
 
                     try:
                         response = self.ai_client.chat(user_input, self.conversation_history)
                         self.stdio.stop_loading("succeed")
-                        self.stdio.print("\r" + " " * 20 + "\r", end="")  # Clear "Thinking..."
+                        self._log_info("\r" + " " * 20 + "\r", end="")  # Clear "Thinking..."
 
                         # Render response as Markdown
                         self._render_markdown(response)
-                        self.stdio.print("")  # New line after response
+                        self._log_info("")  # New line after response
 
                         # Update conversation history
                         self.conversation_history.append({"role": "user", "content": user_input})
@@ -488,20 +489,19 @@ Available diagnostic tools:
                             self.conversation_history = self.conversation_history[-20:]
 
                     except Exception as e:
-                        self.stdio.print(f"\rError: {str(e)}\n")
-                        self.stdio.error(f"Failed to get AI response: {str(e)}")
+                        self._log_info(f"\rError: {str(e)}\n")
+                        self._log_error(f"Failed to get AI response: {str(e)}")
 
                 except KeyboardInterrupt:
-                    self.stdio.print("\n\nInterrupted. Type 'exit' to quit.\n")
+                    self._log_info("\n\nInterrupted. Type 'exit' to quit.\n")
                 except EOFError:
-                    self.stdio.print("\n\nGoodbye!\n")
+                    self._log_info("\n\nGoodbye!\n")
                     break
 
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "AI assistant session ended"})
 
         except Exception as e:
-            self.stdio.error(f"AI assistant error: {str(e)}")
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"AI assistant error: {str(e)}")
+            return self._handle_error(e)
         finally:
             # Cleanup
             if self.ai_client:

@@ -17,8 +17,8 @@
 """
 
 import re
+from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
-from src.common.stdio import SafeStdio
 import datetime
 from src.handler.display.scenes.base import SceneBase
 from src.common.obdiag_exception import OBDIAGFormatException
@@ -30,11 +30,10 @@ from src.common.tool import TimeUtils
 from src.common.ob_connector import OBConnector
 
 
-class DisplaySceneHandler(SafeStdio):
+class DisplaySceneHandler(BaseHandler):
 
-    def __init__(self, context, display_pack_dir='./', tasks_base_path="~/.obdiag/display/tasks/", task_type="observer", is_inner=False):
-        self.context = context
-        self.stdio = context.stdio
+    def _init(self, display_pack_dir='./', tasks_base_path="~/.obdiag/display/tasks/", task_type="observer", is_inner=False, **kwargs):
+        """Subclass initialization"""
         self.is_ssh = True
         self.report = None
         self.display_pack_dir = display_pack_dir
@@ -47,12 +46,13 @@ class DisplaySceneHandler(SafeStdio):
         self.variables = {}
         self.is_inner = is_inner
         self.temp_dir = '/tmp'
+
         if self.context.get_variable("display_timestamp", None):
             self.display_timestamp = self.context.get_variable("display_timestamp")
         else:
             self.display_timestamp = TimeUtils.get_current_us_timestamp()
 
-    def init_config(self):
+        # Initialize config
         self.cluster = self.context.cluster_config
         self.sys_connector = OBConnector(context=self.context, ip=self.cluster.get("db_host"), port=self.cluster.get("db_port"), username=self.cluster.get("tenant_sys").get("user"), password=self.cluster.get("tenant_sys").get("password"), timeout=100)
         self.obproxy_nodes = self.context.obproxy_config['servers']
@@ -60,29 +60,31 @@ class DisplaySceneHandler(SafeStdio):
         new_nodes = Util.get_nodes_list(self.context, self.ob_nodes, self.stdio)
         if new_nodes:
             self.nodes = new_nodes
-        return True
 
-    def handle(self):
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        self.context.set_variable('temp_dir', self.temp_dir)
-        self.__init_variables()
-        self.__init_task_names()
-        data = self.execute()
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"display_data": data})
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            if not self.init_option():
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
+            self.context.set_variable('temp_dir', self.temp_dir)
+            self.__init_variables()
+            self.__init_task_names()
+            data = self.execute()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"display_data": data})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def execute(self):
         try:
             return_data = ""
-            self.stdio.verbose("execute_tasks. the number of tasks is {0} ,tasks is {1}".format(len(self.yaml_tasks.keys()), self.yaml_tasks.keys()))
+            self._log_verbose(f"execute_tasks. the number of tasks is {len(self.yaml_tasks.keys())} ,tasks is {self.yaml_tasks.keys()}")
             for key, value in zip(self.yaml_tasks.keys(), self.yaml_tasks.values()):
                 data = self.__execute_yaml_task_one(key, value)
                 if isinstance(data, str):
-                    return_data = "{0}\n{1}".format(return_data, data)
+                    return_data = f"{return_data}\n{data}"
                 elif isinstance(data, ObdiagResult):
                     return data
             # todo display no code task
@@ -90,7 +92,7 @@ class DisplaySceneHandler(SafeStdio):
                 self.__execute_code_task_one(task)
             return return_data
         except Exception as e:
-            self.stdio.error("Internal error :{0}".format(e))
+            self._log_error(f"Internal error :{e}")
 
     def __init_db_connector(self):
         self.db_connector = OBConnector(context=self.context, ip=self.db_conn.get("host"), port=self.db_conn.get("port"), username=self.db_conn.get("user"), password=self.db_conn.get("password"), database=self.db_conn.get("database"), timeout=100)
@@ -98,7 +100,7 @@ class DisplaySceneHandler(SafeStdio):
     # execute yaml task
     def __execute_yaml_task_one(self, task_name, task_data):
         try:
-            self.stdio.print("execute tasks: {0}".format(task_name))
+            self._log_info(f"execute tasks: {task_name}")
             task_type = self.__get_task_type(task_name)
             version = get_version_by_type(self.context, task_type)
             if version:
@@ -106,39 +108,41 @@ class DisplaySceneHandler(SafeStdio):
                 if match:
                     self.cluster["version"] = match.group(0)
                 else:
-                    self.stdio.error("get cluster.version failed")
+                    self._log_error("get cluster.version failed")
                     return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="get cluster.version failed")
                 task = SceneBase(context=self.context, scene=task_data["task"], env=self.env, scene_variable_dict=self.variables, task_type=task_type, db_connector=self.db_connector)
-                self.stdio.verbose("{0} execute!".format(task_name))
+                self._log_verbose(f"{task_name} execute!")
                 data = task.execute()
-                self.stdio.verbose("execute tasks end : {0}".format(task_name))
+                self._log_verbose(f"execute tasks end : {task_name}")
                 return str(data)
             else:
-                self.stdio.error("can't get version")
+                self._log_error("can't get version")
                 return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="can't get version")
         except Exception as e:
-            self.stdio.error("__execute_yaml_task_one Exception : {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="__execute_yaml_task_one Exception : {0}".format(e))
+            self._log_error(f"__execute_yaml_task_one Exception : {e}")
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"__execute_yaml_task_one Exception : {e}")
 
     # execute code task
     def __execute_code_task_one(self, task_name):
         try:
-            self.stdio.verbose("execute tasks is {0}".format(task_name))
+            self._log_verbose(f"execute tasks is {task_name}")
             scene = {"name": task_name}
             task = SceneBase(context=self.context, scene=scene, env=self.env, mode='code', task_type=task_name, db_connector=self.db_connector)
-            self.stdio.verbose("{0} execute!".format(task_name))
+            self._log_verbose(f"{task_name} execute!")
             data = task.execute()
-            self.stdio.verbose("execute tasks end : {0}".format(task_name))
+            self._log_verbose(f"execute tasks end : {task_name}")
             return data
         except Exception as e:
-            self.stdio.error("__execute_code_task_one Exception : {0}".format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="__execute_code_task_one Exception : {0}".format(e))
+            self._log_error(f"__execute_code_task_one Exception : {e}")
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"__execute_code_task_one Exception : {e}")
 
     def __init_task_names(self):
         if self.scene:
             new = re.sub(r'\{|\}', '', self.scene)
             items = re.split(r'[;,]', new)
-            scene = DisplayScenesListHandler(self.context)
+            # Use new BaseHandler initialization pattern
+            scene = DisplayScenesListHandler()
+            scene.init(self.context)
             for item in items:
                 yaml_task_data = scene.get_one_yaml_task(item)
                 is_code_task = scene.is_code_task(item)
@@ -148,13 +152,13 @@ class DisplaySceneHandler(SafeStdio):
                     if yaml_task_data:
                         self.yaml_tasks[item] = yaml_task_data
                     else:
-                        self.stdio.error("Invalid Task :{0}".format(item))
+                        self._log_error(f"Invalid Task :{item}")
             # hard code add display observer.base
             if len(self.code_tasks) > 0:
                 yaml_task_base = scene.get_one_yaml_task("observer.base")
                 self.yaml_tasks["observer.base"] = yaml_task_base
         else:
-            self.stdio.error("get task name failed")
+            self._log_error("get task name failed")
             return False
 
     def __init_variables(self):
@@ -165,9 +169,9 @@ class DisplaySceneHandler(SafeStdio):
                 "from_time": self.from_time_str,
                 "to_time": self.to_time_str,
             }
-            self.stdio.verbose("display scene variables: {0}".format(self.variables))
+            self._log_verbose(f"display scene variables: {self.variables}")
         except Exception as e:
-            self.stdio.error("init display scene variables failed, error: {0}".format(e))
+            self._log_error(f"init display scene variables failed, error: {e}")
             return False
 
     def __get_task_type(self, s):
@@ -179,13 +183,13 @@ class DisplaySceneHandler(SafeStdio):
             return None
 
     def init_option(self):
-        options = self.context.options
-        from_option = Util.get_option(options, 'from')
-        to_option = Util.get_option(options, 'to')
-        since_option = Util.get_option(options, 'since')
-        env_option = Util.get_option(options, 'env')
-        scene_option = Util.get_option(options, 'scene')
-        temp_dir_option = Util.get_option(options, 'temp_dir')
+        from_option = self._get_option('from')
+        to_option = self._get_option('to')
+        since_option = self._get_option('since')
+        env_option = self._get_option('env')
+        scene_option = self._get_option('scene')
+        temp_dir_option = self._get_option('temp_dir')
+
         if from_option is not None and to_option is not None:
             try:
                 from_timestamp = TimeUtils.parse_time_str(from_option)
@@ -193,23 +197,22 @@ class DisplaySceneHandler(SafeStdio):
                 self.from_time_str = from_option
                 self.to_time_str = to_option
             except OBDIAGFormatException:
-                self.stdio.exception('Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={0}, to_datetime={1}'.format(from_option, to_option))
-                return False
+                raise ValueError(f'Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={from_option}, to_datetime={to_option}')
             if to_timestamp <= from_timestamp:
-                self.stdio.exception('Error: from datetime is larger than to datetime, please check.')
-                return False
+                raise ValueError('Error: from datetime is larger than to datetime, please check.')
         elif (from_option is None or to_option is None) and since_option is not None:
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
         else:
-            self.stdio.print('No time option provided, default processing is based on the last 30 minutes')
+            self._log_info('No time option provided, default processing is based on the last 30 minutes')
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             if since_option:
                 self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
             else:
                 self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+
         if scene_option:
             self.scene = scene_option
         if env_option:
@@ -222,7 +225,7 @@ class DisplaySceneHandler(SafeStdio):
                 self.db_conn = db_conn
                 self.__init_db_connector()
             else:
-                self.stdio.warn("db connection information not provided or invalid, using sys_connector")
+                self._log_warn("db connection information not provided or invalid, using sys_connector")
                 self.db_connector = self.sys_connector
         else:
             self.db_connector = self.sys_connector

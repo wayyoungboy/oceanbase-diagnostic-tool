@@ -41,7 +41,7 @@ class TransactionWaitTimeoutScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -93,7 +93,7 @@ class TransactionWaitTimeoutScene(RcaScene):
     def _analyze_shared_lock_conflict(self):
         """Analyze Shared lock conflict by searching logs"""
         # Gather log about "lock_for_read need retry"
-        work_path_lock = self.work_path + "/lock_for_read"
+        work_path_lock = os.path.join(self.work_path, "lock_for_read")
         self.gather_log.grep("lock_for_read need retry")
         logs_name = self.gather_log.execute(save_path=work_path_lock)
 
@@ -108,7 +108,7 @@ class TransactionWaitTimeoutScene(RcaScene):
         data_trans_id_line = None
         for log_name in logs_name:
             try:
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "data_trans_id" in line:
@@ -126,7 +126,7 @@ class TransactionWaitTimeoutScene(RcaScene):
             self.record.add_record("Found blocking transaction: tx_id={0}".format(self.data_trans_id_value))
 
             # Gather logs for the blocking transaction
-            work_path_tx = self.work_path + "/data_trans_id_{0}".format(self.data_trans_id_value)
+            work_path_tx = os.path.join(self.work_path, "data_trans_id_{0}".format(self.data_trans_id_value))
             self.gather_log.grep("{0}".format(self.data_trans_id_value))
             self.gather_log.execute(save_path=work_path_tx)
 
@@ -145,7 +145,7 @@ class TransactionWaitTimeoutScene(RcaScene):
     def _analyze_lock_wait_timeout(self):
         """Analyze Lock wait timeout exceeded by searching logs"""
         # Gather log about "mvcc_write conflict"
-        work_path_mvcc = self.work_path + "/mvcc_write_conflict"
+        work_path_mvcc = os.path.join(self.work_path, "mvcc_write_conflict")
         self.gather_log.grep("mvcc_write conflict")
         logs_name = self.gather_log.execute(save_path=work_path_mvcc)
 
@@ -160,7 +160,7 @@ class TransactionWaitTimeoutScene(RcaScene):
         conflict_tx_id_line = None
         for log_name in logs_name:
             try:
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "conflict_tx_id" in line:

@@ -19,6 +19,7 @@ import os
 import time
 import sqlparse
 from tabulate import tabulate
+from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import StringUtils, Util
 from src.common.tool import TimeUtils
@@ -26,13 +27,12 @@ from src.common.tool import FileUtil
 from src.common.ob_connector import OBConnector
 from src.handler.analyzer.sql.rule_manager import SQLReviewRuleManager
 from src.handler.meta.html_meta import GlobalHtmlMeta
+from src.common.result_type import ObdiagResult
 
 
-class AnalyzeSQLReviewHandler(object):
-    def __init__(self, context):
-        super(AnalyzeSQLReviewHandler, self).__init__()
-        self.context = context
-        self.stdio = context.stdio
+class AnalyzeSQLReviewHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.from_time_str = None
         self.to_time_str = None
         self.config_path = const.DEFAULT_CONFIG_PATH
@@ -42,96 +42,87 @@ class AnalyzeSQLReviewHandler(object):
         self.local_store_path = None
         self.output_type = 'html'
 
-    def init_inner_config(self):
-        self.stdio.print("init inner config start")
-        self.inner_config = self.context.inner_config
-        self.stdio.verbose('inner config: {0}'.format(self.inner_config))
-        basic_config = self.inner_config['obdiag']['basic']
-        self.config_path = basic_config['config_path']
-        self.stdio.print("init inner config complete")
-        return True
+        # Initialize config
+        if self.config:
+            self.config_path = self.config.config_path
+        else:
+            if self.context.inner_config:
+                basic_config = self.context.inner_config['obdiag']['basic']
+                self.config_path = basic_config['config_path']
 
-    def init_config(self):
-        self.stdio.print('init cluster config start')
         ob_cluster = self.context.cluster_config
-        self.stdio.verbose('cluster config: {0}'.format(StringUtils.mask_passwords(ob_cluster)))
         self.ob_cluster = ob_cluster
         self.sys_connector = OBConnector(context=self.context, ip=ob_cluster.get("db_host"), port=ob_cluster.get("db_port"), username=ob_cluster.get("tenant_sys").get("user"), password=ob_cluster.get("tenant_sys").get("password"), timeout=100)
         self.ob_cluster_name = ob_cluster.get("ob_cluster_name")
-        self.stdio.print('init cluster config complete')
-        return True
 
-    def init_db_connector(self):
-        if self.db_user:
-            self.stdio.verbose("init db connector start")
-            self.db_connector_provided = True
-            self.db_connector = OBConnector(context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.db_user, password=self.db_password, timeout=100)
-            self.stdio.verbose("init db connector complete")
-        else:
-            self.db_connector = self.sys_connector
-
-    def init_option(self):
-        self.stdio.print('init option start')
-        options = self.context.options
-        self.stdio.verbose('options:[{0}]'.format(options))
-        files_option = Util.get_option(options, 'files')
+        # Initialize options
+        files_option = self._get_option('files')
         if files_option:
             self.directly_analyze_files = True
             self.analyze_files_list = files_option
         else:
-            self.stdio.error("option --file not found, please provide")
-            return False
-        db_user_option = Util.get_option(options, 'user')
-        db_password_option = Util.get_option(options, 'password')
-        tenant_name_option = Util.get_option(options, 'tenant_name')
+            raise ValueError("option --file not found, please provide")
+
+        db_user_option = self._get_option('user')
+        db_password_option = self._get_option('password')
+        tenant_name_option = self._get_option('tenant_name')
         if tenant_name_option is not None:
             self.tenant_name = tenant_name_option
-        level_option = Util.get_option(options, 'level')
+
+        level_option = self._get_option('level')
         if level_option:
             self.level = level_option
-        store_dir_option = Util.get_option(options, 'store_dir')
+
+        store_dir_option = self._get_option('store_dir')
         if store_dir_option is not None:
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.local_stored_parrent_path = os.path.abspath(store_dir_option)
-        output_option = Util.get_option(options, 'output')
+        else:
+            self.local_stored_parrent_path = os.path.abspath('./obdiag_analyze/')
+            if not os.path.exists(self.local_stored_parrent_path):
+                os.makedirs(self.local_stored_parrent_path)
+
+        output_option = self._get_option('output')
         if output_option:
             self.output_type = output_option
+
         self.db_user = db_user_option
         self.db_password = db_password_option
-        self.stdio.print('init option complete')
-        return True
 
-    def handle(self):
-        self.start_time = time.time()
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return False
-        if not self.init_inner_config():
-            self.stdio.error('init inner config failed')
-            return False
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return False
-        self.init_db_connector()
-        self.local_store_path = os.path.join(self.local_stored_parrent_path, "obdiag_sql_review_result_{0}.html".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
-        self.stdio.verbose("use {0} as result store path.".format(self.local_store_path))
-        all_results = self.__directly_analyze_files()
-        if all_results is None:
-            return
-        results = self.__parse_results(all_results)
-        if self.output_type == "html":
-            html_result = self.__generate_html_result(results)
-            FileUtil.write_append(self.local_store_path, html_result)
+        # Initialize db connector
+        if self.db_user:
+            self.db_connector_provided = True
+            self.db_connector = OBConnector(context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.db_user, password=self.db_password, timeout=100)
         else:
-            pass
-        self.__print_result()
+            self.db_connector = self.sys_connector
+
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            self.start_time = time.time()
+            self.local_store_path = os.path.join(self.local_stored_parrent_path, f"obdiag_sql_review_result_{TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())}.html")
+            self._log_verbose(f"use {self.local_store_path} as result store path.")
+            all_results = self.__directly_analyze_files()
+            if all_results is None:
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="Failed to analyze files")
+            results = self.__parse_results(all_results)
+            if self.output_type == "html":
+                html_result = self.__generate_html_result(results)
+                FileUtil.write_append(self.local_store_path, html_result)
+            self.__print_result()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_path": self.local_store_path})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def __directly_analyze_files(self):
         sql_files = self.__get_sql_file_list()
         if len(sql_files) == 0:
-            self.stdio.error("failed to find SQL files from the --files option provided")
+            self._log_error("failed to find SQL files from the --files option provided")
             return None
         file_results = {}
         sql_results = {}
@@ -159,7 +150,7 @@ class AnalyzeSQLReviewHandler(object):
                         sql_file_list = FileUtil.find_all_file(path)
                         if len(sql_file_list) > 0:
                             sql_files.extend(sql_file_list)
-            self.stdio.print("files to be processed: {0}".format(sql_files))
+            self._log_info(f"files to be processed: {sql_files}")
         return sql_files
 
     def __parse_sql_file(self, file_path):
@@ -235,6 +226,6 @@ class AnalyzeSQLReviewHandler(object):
         elapsed_time = self.end_time - self.start_time
         data = [["Status", "Result Details", "Time"], ["Completed", self.local_store_path, f"{elapsed_time:.2f} s"]]
         table = tabulate(data, headers="firstrow", tablefmt="grid")
-        self.stdio.print("\nAnalyze SQL Review Summary:")
-        self.stdio.print(table)
-        self.stdio.print("\n")
+        self._log_info("\nAnalyze SQL Review Summary:")
+        self._log_info(table)
+        self._log_info("\n")

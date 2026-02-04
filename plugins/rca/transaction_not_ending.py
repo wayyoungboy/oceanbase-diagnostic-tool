@@ -37,7 +37,7 @@ class TransactionNotEndingScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -302,7 +302,7 @@ class TransactionNotEndingScene(RcaScene):
                 # Analyze logs for sub_state and busy_cbs
                 for log_file in logs_name:
                     try:
-                        with open(log_file, 'r', encoding='utf-8') as f:
+                        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
                             content = f.read()
 
                             # Check sub_state (waiting for GTS if sub_state & 0x4 == 1)

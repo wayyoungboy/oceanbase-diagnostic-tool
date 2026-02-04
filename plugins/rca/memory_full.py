@@ -33,7 +33,7 @@ class MemoryFullScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -58,24 +58,24 @@ class MemoryFullScene(RcaScene):
             if not os.path.exists(log_path):
                 os.makedirs(log_path)
             if self.ob_connector:
-                # save desc __all_virtual_memory_info;
-                self.record.add_record("ob_connector is exist, use sql to save __all_virtual_memory_info.")
-                self.__execute_sql_with_save("desc oceanbase.__all_virtual_memory_info;", "virtual_memory_info")
+                # Save desc __all_virtual_memory_info
+                self.record.add_record("ob_connector exists, use SQL to save __all_virtual_memory_info.")
+                self._execute_sql_with_save("desc oceanbase.__all_virtual_memory_info;", "virtual_memory_info")
             self.logs_name = self.gather_log.execute(save_path=log_path)
             if self.logs_name is None or len(self.logs_name) <= 0:
                 self.record.add_record("Not find log.")
                 raise RCANotNeedExecuteException("Not find log.")
             else:
                 self.record.add_record("gather log save in {0}".format(log_path))
-            if self.__check_start_port_in_log():
+            if self._check_start_port_in_log():
                 self.record.add_record("find error log in log.")
             else:
                 self.record.add_record("Not find error log in log.")
                 return False
             if self.ob_connector:
                 # When connection is available, use virtual tables for troubleshooting
-                self.record.add_record("ob_connector is exist, use virtual table to check memory_full scene.")
-                minor_freeze_info_data = self.__execute_sql_with_save("select * from oceanbase.__all_virtual_minor_freeze_info;", "minor_freeze_info")
+                self.record.add_record("ob_connector exists, use virtual table to check memory_full scene.")
+                minor_freeze_info_data = self._execute_sql_with_save("select * from oceanbase.__all_virtual_minor_freeze_info;", "minor_freeze_info")
                 if minor_freeze_info_data is None or len(minor_freeze_info_data) <= 0:
                     self.record.add_record("Not find memstore stat in virtual table.")
                 else:
@@ -88,8 +88,8 @@ class MemoryFullScene(RcaScene):
                         if state == "WAIT_READY_FOR_FLUSH" or state == "FINISH":
                             self.record.add_record("the state is {0}, need check memtable state.".format(state))
                             self.record.add_record("the svr_ip is {0}, svr_port is {1}, tenant_id is {2}. state is {3}".format(svr_ip, svr_port, tenant_id, state))
-                            memstore_info_datas = self.__execute_sql_with_save(
-                                'select * from oceanbase.__all_virtual_memstore_info where svr_ip ={0} and svr_port ={1} and tenant_id ={2} and is_active = "NO" order by start_scn limit 3;'.format(svr_ip, svr_ip, tenant_id),
+                            memstore_info_datas = self._execute_sql_with_save(
+                                'select * from oceanbase.__all_virtual_memstore_info where svr_ip ={0} and svr_port ={1} and tenant_id ={2} and is_active = "NO" order by start_scn limit 3;'.format(svr_ip, svr_port, tenant_id),
                                 "all_virtual_memstore_info_{0}_{1}_{2}".format(svr_ip, svr_port, tenant_id),
                             )
                             for memstore_info_row in memstore_info_datas:
@@ -123,9 +123,9 @@ class MemoryFullScene(RcaScene):
                                     self.record.add_record("the freeze_state is {0}, memtable meets flush conditions but flush not started or not completed.".format(freeze_state))
                                     self.record.add_record("need check compaction and dag info.")
                                     # Need to confirm dump status
-                                    self.__execute_sql_with_save("select * from oceanbase.__all_virtual_compaction_diagnose_info;", "all_virtual_compaction_diagnose_info")
+                                    self._execute_sql_with_save("select * from oceanbase.__all_virtual_compaction_diagnose_info;", "all_virtual_compaction_diagnose_info")
                                     # Confirm dump queue backlog
-                                    self.__execute_sql_with_save("select * from oceanbase.__all_virtual_dag;", "all_virtual_dag")
+                                    self._execute_sql_with_save("select * from oceanbase.__all_virtual_dag;", "all_virtual_dag")
                                 elif freeze_state == "RELEASED":
                                     self.record.add_record(
                                         "the freeze_state is {0}, Represents successful dump and release of memtable from memtable_magr, but the reference count is not clear yet, resulting in memtable not being destroyed.".format(freeze_state)
@@ -141,7 +141,7 @@ class MemoryFullScene(RcaScene):
             self.record.add_suggest("Please send {0} to the Oceanbase community.".format(self.work_path))
             self.stdio.verbose("end MemoryFullScene execute")
 
-    def __check_start_port_in_log(self):
+    def _check_start_port_in_log(self):
         check_flag = False
         for log_name in self.logs_name:
             tag_map = {"failed to create memtable": False, "cannot create more memtable": False, "ret=-4263": False, "ret=-4013": False, "memtable not ready for flush for long time": False}
@@ -159,7 +159,7 @@ class MemoryFullScene(RcaScene):
             return True
         return False
 
-    def __execute_sql_with_save(self, sql: str, save_file_name: str):
+    def _execute_sql_with_save(self, sql: str, save_file_name: str):
         try:
             cursor = self.ob_connector.execute_sql_return_cursor_dictionary(sql)
             data = cursor.fetchall()
@@ -169,7 +169,7 @@ class MemoryFullScene(RcaScene):
                 return []
             columns = [desc[0] for desc in cursor.description]
             data_save_path = os.path.join(self.work_path, "{}.txt".format(save_file_name))
-            with open(data_save_path, 'w') as f:
+            with open(data_save_path, 'w', encoding='utf-8') as f:
                 f.write('\t'.join(columns) + '\n')
                 for row in data:
                     line = ""

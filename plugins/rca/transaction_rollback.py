@@ -42,7 +42,7 @@ class TransactionRollbackScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -80,7 +80,7 @@ class TransactionRollbackScene(RcaScene):
             # Extract trans_id from logs
             trans_id = None
             for log_name in logs_name:
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "trans is killed" in line:
@@ -154,7 +154,7 @@ class TransactionRollbackScene(RcaScene):
 
         for log in logs_name:
             try:
-                with open(log, "r") as f:
+                with open(log, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "trans_expired_time" in line:
@@ -196,7 +196,7 @@ class TransactionRollbackScene(RcaScene):
             error_found = False
             for log_name in logs_name:
                 try:
-                    with open(log_name, "r") as f:
+                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                         if "ERROR" in content or "error" in content.lower():
                             error_found = True

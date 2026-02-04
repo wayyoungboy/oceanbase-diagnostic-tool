@@ -23,6 +23,7 @@ import datetime
 import tabulate
 import threading
 import uuid
+from src.common.base_handler import BaseHandler
 from src.common.command import get_observer_version
 from src.common.tool import DirectoryUtil, TimeUtils, Util, NetUtils, FileUtil
 from src.common.obdiag_exception import OBDIAGFormatException
@@ -33,11 +34,9 @@ from src.common.ssh_client.local_client import LocalClient
 from src.common.result_type import ObdiagResult
 
 
-class AnalyzeMemoryHandler(object):
-    def __init__(self, context):
-        super(AnalyzeMemoryHandler, self).__init__()
-        self.context = context
-        self.stdio = context.stdio
+class AnalyzeMemoryHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.ob_cluster = self.context.cluster_config
         self.directly_analyze_files = False
         self.analyze_files_list = []
@@ -54,31 +53,27 @@ class AnalyzeMemoryHandler(object):
         self.config_path = const.DEFAULT_CONFIG_PATH
         self.version = None
 
-    def init_config(self):
+        # Initialize config
         self.nodes = self.context.cluster_config['servers']
-        self.inner_config = self.context.inner_config
-        if self.inner_config is None:
+        if self.context.inner_config is None:
             self.file_number_limit = 20
             self.file_size_limit = 2 * 1024 * 1024 * 1024
         else:
-            basic_config = self.inner_config['obdiag']['basic']
+            basic_config = self.context.inner_config['obdiag']['basic']
             self.file_number_limit = int(basic_config["file_number_limit"])
             self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
             self.config_path = basic_config['config_path']
-        if self.version is None:
-            self.version = self.get_version()
-        return True
 
-    def init_option(self):
-        options = self.context.options
-        from_option = Util.get_option(options, 'from')
-        version = Util.get_option(options, 'version')
-        to_option = Util.get_option(options, 'to')
-        since_option = Util.get_option(options, 'since')
-        store_dir_option = Util.get_option(options, 'store_dir')
-        grep_option = Util.get_option(options, 'grep')
-        files_option = Util.get_option(options, 'files')
-        temp_dir_option = Util.get_option(options, 'temp_dir')
+        # Initialize options
+        from_option = self._get_option('from')
+        version = self._get_option('version')
+        to_option = self._get_option('to')
+        since_option = self._get_option('since')
+        store_dir_option = self._get_option('store_dir')
+        grep_option = self._get_option('grep')
+        files_option = self._get_option('files')
+        temp_dir_option = self._get_option('temp_dir')
+
         if files_option:
             self.is_ssh = False
             self.directly_analyze_files = True
@@ -86,8 +81,8 @@ class AnalyzeMemoryHandler(object):
             if version:
                 self.version = version
             else:
-                self.stdio.error('the option --files requires the --version option to be specified')
-                return False
+                raise ValueError('the option --files requires the --version option to be specified')
+
         if from_option is not None and to_option is not None:
             try:
                 from_timestamp = TimeUtils.parse_time_str(from_option)
@@ -95,19 +90,17 @@ class AnalyzeMemoryHandler(object):
                 self.from_time_str = from_option
                 self.to_time_str = to_option
             except OBDIAGFormatException:
-                self.stdio.exception('Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={0}, to_datetime={1}'.format(from_option, to_option))
-                return False
+                raise ValueError(f'Error: Datetime is invalid. Must be in format yyyy-mm-dd hh:mm:ss. from_datetime={from_option}, to_datetime={to_option}')
             if to_timestamp <= from_timestamp:
-                self.stdio.exception('Error: from datetime is larger than to datetime, please check.')
-                return False
+                raise ValueError('Error: from datetime is larger than to datetime, please check.')
         elif (from_option is None or to_option is None) and since_option is not None:
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
             if not self.directly_analyze_files:
-                self.stdio.print('analyze memory from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
+                self._log_info(f'analyze memory from_time: {self.from_time_str}, to_time: {self.to_time_str}')
         else:
-            self.stdio.print('No time option provided, default processing is based on the last 30 minutes')
+            self._log_info('No time option provided, default processing is based on the last 30 minutes')
             now_time = datetime.datetime.now()
             self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
             if since_option is not None:
@@ -115,82 +108,91 @@ class AnalyzeMemoryHandler(object):
             else:
                 self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
             if not self.directly_analyze_files:
-                self.stdio.print('analyze log from_time: {0}, to_time: {1}'.format(self.from_time_str, self.to_time_str))
+                self._log_info(f'analyze log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
+
         if store_dir_option is not None:
             if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.gather_pack_dir = os.path.abspath(store_dir_option)
+        else:
+            self.gather_pack_dir = os.path.abspath('./obdiag_analyze/')
+            if not os.path.exists(self.gather_pack_dir):
+                os.makedirs(self.gather_pack_dir)
+
         if grep_option is not None:
             self.grep_args = grep_option
         if temp_dir_option:
             self.gather_ob_log_temporary_dir = temp_dir_option
-        return True
+
+        if self.version is None:
+            self.version = self.get_version()
 
     def get_version(self):
         observer_version = ""
         try:
             observer_version = get_observer_version(self.context)
         except Exception as e:
-            self.stdio.exception("failed to get observer version:{0}".format(e))
-        self.stdio.verbose("get observer version: {0}".format(observer_version))
+            self._log_error(f"failed to get observer version:{e}")
+        self._log_verbose(f"get observer version: {observer_version}")
         return observer_version
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
-        self.stdio.verbose("Use {0} as pack dir.".format(local_store_parent_dir))
-        analyze_tuples = []
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-        # analyze_thread default thread nums is 3
-        analyze_thread_nums = int(self.context.inner_config.get("analyze", {}).get("thread_nums") or 3)
-        pool_sema = threading.BoundedSemaphore(value=analyze_thread_nums)
+        try:
+            local_store_parent_dir = os.path.join(self.gather_pack_dir, f"obdiag_analyze_pack_{TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())}")
+            self._log_verbose(f"Use {local_store_parent_dir} as pack dir.")
+            analyze_tuples = []
 
-        def handle_from_node(node):
-            with pool_sema:
-                st = time.time()
-                resp = self.__handle_from_node(node, local_store_parent_dir)
-                analyze_tuples.append((node.get("ip"), resp["skip"], resp["error"], int(time.time() - st), resp["result_pack_path"]))
+            # analyze_thread default thread nums is 3
+            analyze_thread_nums = int(self.context.inner_config.get("analyze", {}).get("thread_nums") or 3)
+            pool_sema = threading.BoundedSemaphore(value=analyze_thread_nums)
 
-        nodes_threads = []
-        self.stdio.print("analyze nodes's log start. Please wait a moment...")
-        self.stdio.start_loading('analyze memory start')
-        for node in self.nodes:
-            if self.directly_analyze_files:
-                if nodes_threads:
-                    break
-                node["ip"] = '127.0.0.1'
-            else:
-                if not self.is_ssh:
-                    local_ip = NetUtils.get_inner_ip()
-                    node = self.nodes[0]
-                    node["ip"] = local_ip
-            node_threads = threading.Thread(target=handle_from_node, args=(node,))
-            node_threads.start()
-            nodes_threads.append(node_threads)
-        for node_thread in nodes_threads:
-            node_thread.join()
+            def handle_from_node(node):
+                with pool_sema:
+                    st = time.time()
+                    resp = self.__handle_from_node(node, local_store_parent_dir)
+                    analyze_tuples.append((node.get("ip"), resp["skip"], resp["error"], int(time.time() - st), resp["result_pack_path"]))
 
-        summary_tuples = self.__get_overall_summary(analyze_tuples)
-        self.stdio.stop_loading('analyze memory sucess')
-        self.stdio.print(summary_tuples)
-        FileUtil.write_append(os.path.join(local_store_parent_dir, "result_summary.txt"), summary_tuples)
-        analyze_info = ""
-        with open(os.path.join(local_store_parent_dir, "result_summary.txt"), "r", encoding="utf-8") as f:
-            analyze_info = f.read()
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": analyze_info})
+            nodes_threads = []
+            self._log_info("analyze nodes's log start. Please wait a moment...")
+            self.stdio.start_loading('analyze memory start')
+            for node in self.nodes:
+                if self.directly_analyze_files:
+                    if nodes_threads:
+                        break
+                    node["ip"] = '127.0.0.1'
+                else:
+                    if not self.is_ssh:
+                        local_ip = NetUtils.get_inner_ip()
+                        node = self.nodes[0]
+                        node["ip"] = local_ip
+                node_threads = threading.Thread(target=handle_from_node, args=(node,))
+                node_threads.start()
+                nodes_threads.append(node_threads)
+            for node_thread in nodes_threads:
+                node_thread.join()
+
+            summary_tuples = self.__get_overall_summary(analyze_tuples)
+            self.stdio.stop_loading('analyze memory sucess')
+            self._log_info(summary_tuples)
+            FileUtil.write_append(os.path.join(local_store_parent_dir, "result_summary.txt"), summary_tuples)
+            analyze_info = ""
+            with open(os.path.join(local_store_parent_dir, "result_summary.txt"), "r", encoding="utf-8") as f:
+                analyze_info = f.read()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": analyze_info})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def __handle_from_node(self, node, local_store_parent_dir):
         resp = {"skip": False, "error": "", "result_pack_path": ""}
         remote_ip = node.get("ip") if self.is_ssh else '127.0.0.1'
         try:
             ssh_client = SshClient(self.context, node)
-            self.stdio.verbose("Sending Collect Shell Command to node {0} ...".format(remote_ip))
+            self._log_verbose(f"Sending Collect Shell Command to node {remote_ip} ...")
             DirectoryUtil.mkdir(path=local_store_parent_dir, stdio=self.stdio)
             local_store_dir = "{0}/{1}".format(local_store_parent_dir, ssh_client.get_name().replace(":", "_"))
             DirectoryUtil.mkdir(path=local_store_dir, stdio=self.stdio)
@@ -213,8 +215,8 @@ class AnalyzeMemoryHandler(object):
         resp["result_pack_path"] = result_pack_path
         if resp["skip"]:
             return resp
-        self.stdio.print(FileUtil.show_file_list_tabulate(remote_ip, log_list, self.stdio))
-        self.stdio.print("analyze log. Please wait a moment...")
+        self._log_info(FileUtil.show_file_list_tabulate(remote_ip, log_list, self.stdio))
+        self._log_info("analyze log. Please wait a moment...")
         self.stdio.start_loading("analyze memory start")
         for log_name in log_list:
             if self.directly_analyze_files:
@@ -476,7 +478,7 @@ class AnalyzeMemoryHandler(object):
                 resp["error"] = "Too many files {0} > {1}, " "Please adjust the number of incoming files".format(len(log_list), self.file_number_limit)
             return log_list, resp
         elif len(log_list) == 0:
-            self.stdio.warn("{0} The number of observer.log*  files is {1}, No files found".format(node.get("ip"), len(log_list)))
+            self._log_warn(f"{node.get('ip')} The number of observer.log*  files is {len(log_list)}, No files found")
             resp["skip"] = (True,)
             resp["error"] = "No observer.log* found"
             return log_list, resp
@@ -495,7 +497,7 @@ class AnalyzeMemoryHandler(object):
         if log_files:
             log_name_list = get_logfile_name_list(ssh_client, self.from_time_str, self.to_time_str, log_path, log_files, self.stdio)
         else:
-            self.stdio.error("Unable to find the log file. Please provide the correct --ob_install_dir, the default is [/home/admin/oceanbase]")
+            self._log_error("Unable to find the log file. Please provide the correct --ob_install_dir, the default is [/home/admin/oceanbase]")
         return log_name_list
 
     def __get_log_name_list_offline(self):
@@ -515,7 +517,7 @@ class AnalyzeMemoryHandler(object):
                         if log_names:
                             filtered_logs = [name for name in log_names if os.path.basename(name).startswith('observer.log')]
                             log_name_list.extend(filtered_logs)
-        self.stdio.verbose("get log list {}".format(log_name_list))
+        self._log_verbose(f"get log list {log_name_list}")
         return log_name_list
 
     def __pharse_log_file(self, ssh_client, node, log_name, gather_path, local_store_dir):
@@ -532,7 +534,7 @@ class AnalyzeMemoryHandler(object):
             real_time_logs = ["observer.log", "rootservice.log", "election.log", "trace.log", "observer.log.wf", "rootservice.log.wf", "election.log.wf", "trace.log.wf"]
             if log_name in real_time_logs:
                 cp_cmd = "cp {log_dir}/{log_name} {gather_path}/{log_name} ".format(gather_path=gather_path, log_name=log_name, log_dir=log_path)
-                self.stdio.verbose("copy files, run cmd = [{0}]".format(cp_cmd))
+                self._log_verbose(f"copy files, run cmd = [{cp_cmd}]")
                 ssh_client.exec_cmd(cp_cmd)
                 log_full_path = "{gather_path}/{log_name}".format(log_name=log_name, gather_path=gather_path)
                 download_file(ssh_client, log_full_path, local_store_path, self.stdio)
@@ -577,10 +579,10 @@ class AnalyzeMemoryHandler(object):
             except ValueError:
                 continue
             except Exception as e:
-                self.stdio.warn('parse memory label failed, error: {0}'.format(e))
+                self._log_warn(f'parse memory label failed, error: {e}')
                 continue
         if len(memory_print_line_list) == 0 and self.directly_analyze_files:
-            self.stdio.warn('failed to get memory information. Please confirm that the file:{0} and version:{1} you are passing are consistent'.format(file_full_path, self.version))
+            self._log_warn(f'failed to get memory information. Please confirm that the file:{file_full_path} and version:{self.version} you are passing are consistent')
         return sorted(memory_print_line_list)
 
     def __convert_string_bytes_2_int_bytes(self, string_bytes):
@@ -598,7 +600,7 @@ class AnalyzeMemoryHandler(object):
         :param file_full_path
         :return:
         """
-        self.stdio.verbose("start parse log {0}".format(file_full_path))
+        self._log_verbose(f"start parse log {file_full_path}")
         memory_print_line_list = self.__parse_memory_label(file_full_path)
         if memory_print_line_list:
             with open(file_full_path, 'r', encoding='utf8', errors='replace') as file:
@@ -763,8 +765,8 @@ class AnalyzeMemoryHandler(object):
                                         tenant_dict['ctx_info'] = []
                                         tenant_dict['ctx_info'].append(ctx_info)
                 except Exception as e:
-                    self.stdio.exception('parse log failed, error: {0}'.format(e))
-        self.stdio.verbose("complete parse log {0}".format(file_full_path))
+                    self._log_error(f'parse log failed, error: {e}')
+        self._log_verbose(f"complete parse log {file_full_path}")
         return
 
     def __get_time_from_ob_log_line(self, log_line):

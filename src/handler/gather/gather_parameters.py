@@ -13,9 +13,10 @@
 """
 @time: 2024/6/16
 @file: gather_parameters.py
-@desc:
+@desc: Gather parameters handler (Migrated to BaseHandler)
 """
 import os
+from src.common.base_handler import BaseHandler
 from src.common.command import get_observer_version_by_sql
 from src.common.tool import DirectoryUtil, TimeUtils, Util, StringUtils
 from src.common.obdiag_exception import OBDIAGFormatException
@@ -26,18 +27,20 @@ from colorama import Fore, Style
 from src.common.result_type import ObdiagResult
 
 
-class GatherParametersHandler(object):
-    def __init__(self, context, gather_pack_dir='./'):
-        self.context = context
-        self.stdio = self.context.stdio
+class GatherParametersHandler(BaseHandler):
+    def _init(self, gather_pack_dir='./', **kwargs):
+        """Subclass initialization"""
         self.gather_pack_dir = gather_pack_dir
         self.parameter_file_name = None
         self.ob_cluster = self.context.cluster_config
+
         if self.context.get_variable("gather_timestamp", None):
             self.gather_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
+
         self.observer_nodes = self.context.cluster_config.get("servers")
+
         try:
             self.obconn = OBConnector(
                 context=self.context,
@@ -49,38 +52,40 @@ class GatherParametersHandler(object):
                 database="oceanbase",
             )
         except Exception as e:
-            self.stdio.error("Failed to connect to database: {0}".format(e))
-            raise OBDIAGFormatException("Failed to connect to database: {0}".format(e))
+            self._log_error(f"Failed to connect to database: {e}")
+            raise OBDIAGFormatException(f"Failed to connect to database: {e}")
 
-    def handle(self):
-        if not self.init_option():
-            self.stdio.error('init option failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init option failed")
-        # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
-        pack_dir_this_command = os.path.join(self.gather_pack_dir, "gather_parameters")
-        self.stdio.verbose("Use {0} as pack dir.".format(pack_dir_this_command))
-        DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
-        self.gather_pack_dir = pack_dir_this_command
-        self.execute()
-        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"gather_pack_dir": pack_dir_this_command})
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
 
-    def init_option(self):
-        options = self.context.options
-        store_dir_option = Util.get_option(options, 'store_dir')
-        if store_dir_option and store_dir_option != "./":
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self.stdio.warn('args --store_dir [{0}] incorrect: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
-                os.makedirs(os.path.abspath(store_dir_option))
-        self.gather_pack_dir = os.path.abspath(store_dir_option)
-        return True
+        try:
+            # Initialize options
+            store_dir_option = self._get_option('store_dir')
+            if store_dir_option and store_dir_option != "./":
+                if not os.path.exists(os.path.abspath(store_dir_option)):
+                    self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
+                    os.makedirs(os.path.abspath(store_dir_option))
+                self.gather_pack_dir = os.path.abspath(store_dir_option)
+
+            # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
+            pack_dir_this_command = os.path.join(self.gather_pack_dir, "gather_parameters")
+            self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
+            DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
+            self.gather_pack_dir = pack_dir_this_command
+            self.execute()
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"gather_pack_dir": pack_dir_this_command})
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def get_version(self):
         observer_version = ""
         try:
             observer_version = get_observer_version_by_sql(self.context, self.ob_cluster)
         except Exception as e:
-            self.stdio.warn("failed to get observer version:{0}".format(e))
-        self.stdio.verbose("get observer version: {0}".format(observer_version))
+            self._log_warn(f"failed to get observer version:{e}")
+        self._log_verbose(f"get observer version: {observer_version}")
         return observer_version
 
     def get_cluster_name(self):
@@ -90,8 +95,8 @@ class GatherParametersHandler(object):
             cluster_info = self.obconn.execute_sql(sql)
             cluster_name = cluster_info[0][0]
         except Exception as e:
-            self.stdio.warn("failed to get oceanbase cluster name:{0}".format(e))
-        self.stdio.verbose("get oceanbase cluster name {0}".format(cluster_name))
+            self._log_warn(f"failed to get oceanbase cluster name:{e}")
+        self._log_verbose(f"get oceanbase cluster name {cluster_name}")
         return cluster_name
 
     def get_parameters_info(self):
@@ -124,12 +129,13 @@ select version(), svr_ip,svr_port,zone,scope,'None' tenant_id,name,value,section
                         writer.writerow(tmp_row)
                     else:
                         writer.writerow(row)
-            self.stdio.print("Gather parameters finished. For more details, please run cmd '" + Fore.YELLOW + "cat {0}".format(self.parameter_file_name) + Style.RESET_ALL + "'")
+            self._log_info(f"Gather parameters finished. For more details, please run cmd '{Fore.YELLOW}cat {self.parameter_file_name}{Style.RESET_ALL}'")
         else:
-            self.stdio.warn("Failed to retrieve the database version. Please check if the database connection is normal.")
+            self._log_warn("Failed to retrieve the database version. Please check if the database connection is normal.")
 
     def execute(self):
         try:
             self.get_parameters_info()
         except Exception as e:
-            self.stdio.error("parameter info gather failed, error message: {0}".format(e))
+            self._log_error(f"parameter info gather failed, error message: {e}")
+            raise

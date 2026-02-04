@@ -13,14 +13,14 @@
 """
 @time: 2025/04/28
 @file: gather_dbms_xplan.py
-@desc:
+@desc: Gather DBMS_XPLAN handler (Migrated to BaseHandler)
 """
 
 import os
 import time
 
+from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
-from src.common.stdio import SafeStdio
 from src.common.ob_connector import OBConnector
 from src.common.tool import StringUtils
 from src.common.command import get_observer_version
@@ -29,19 +29,17 @@ from pathlib import Path
 from src.common.tool import TimeUtils
 from tabulate import tabulate
 from src.common.command import get_file_size, download_file, delete_file_force
-from src.common.command import SshClient
+from src.common.ssh_client.ssh import SshClient
 from src.common.tool import DirectoryUtil
 from src.common.tool import NetUtils
-from src.common.result_type import ObdiagResult
 from src.common.tool import FileUtil
 from src.handler.meta.sql_meta import GlobalSqlMeta
 
 
-class GatherDBMSXPLANHandler(SafeStdio):
+class GatherDBMSXPLANHandler(BaseHandler):
 
-    def __init__(self, context, store_dir="./", is_scene=False, is_inner=False):
-        self.context = context
-        self.stdio = context.stdio
+    def _init(self, store_dir="./", is_scene=False, is_inner=False, **kwargs):
+        """Subclass initialization"""
         self.is_ssh = True
         self.ob_cluster = {}
         self.ob_connector = None
@@ -62,116 +60,131 @@ class GatherDBMSXPLANHandler(SafeStdio):
         self.skip_gather = False
         self.retry_opt_trace = True
         self.opt_trace_file_suffix = "obdiag_" + StringUtils.generate_alphanum_code(6)
+
         if self.context.get_variable("gather_timestamp", None):
             self.gather_timestamp = self.context.get_variable("gather_timestamp")
         else:
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
 
-    def init(self):
-        try:
-            self.store_dir = os.path.join(self.store_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
-            options = self.context.options
-            self.trace_id = Util.get_option(options, 'trace_id')
-            user = Util.get_option(options, 'user')
-            password = Util.get_option(options, 'password') or ""
-            store_dir_option = Util.get_option(options, 'store_dir')
-            self.scope_option = Util.get_option(options, 'scope')
-            valid_scopes = ['all', 'opt_trace', 'display_cursor']
-            if self.scope_option:
-                if self.scope_option not in valid_scopes:
-                    error_msg = f"invalid --scope option: '{self.scope_option}'. Valid options are: {', '.join(valid_scopes)}. Setting default --scope=all."
-                    self.stdio.warn(error_msg)
-                    self.scope = "all"
-                else:
-                    self.scope = self.scope_option
-            if store_dir_option is not None and store_dir_option != './':
-                if not os.path.exists(os.path.abspath(store_dir_option)):
-                    self.stdio.warn('args --store_dir [{0}]: No such directory, Now create it'.format(os.path.abspath(store_dir_option)))
-                    os.makedirs(os.path.abspath(store_dir_option))
-                    self.store_dir = os.path.abspath(store_dir_option)
-                else:
-                    self.store_dir = os.path.abspath(store_dir_option)
-            if self.context.get_variable("gather_trace_id", None):
-                self.trace_id = self.context.get_variable("gather_trace_id")
-                if not self.context.get_variable("gather_user"):
-                    return False
-                user = self.context.get_variable("gather_user")
-            if self.context.get_variable("gather_password", None):
-                password = self.context.get_variable("gather_password")
-            if self.context.get_variable("store_dir", None):
-                self.store_dir = self.context.get_variable("store_dir")
-            if self.context.get_variable("dbms_xplan_scope", None):
-                self.scope = self.context.get_variable("dbms_xplan_scope")
-            if not self.trace_id:
-                self.stdio.error("option --trace_id not found, please provide")
-                return False
-            if not user:
-                self.stdio.error("option --user not found, please provide")
-                return False
-            env_option = Util.get_option(options, 'env')
-            if env_option:
-                self.env = env_option
-            self.tenant_password = password
-            self.tenant_user = user
-            return True
-        except Exception as e:
-            self.stdio.error(e)
-            return False
+        # Initialize options and config in _init
+        self.store_dir = os.path.join(self.store_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
 
-    def init_config(self):
+        trace_id = self._get_option('trace_id')
+        user = self._get_option('user')
+        password = self._get_option('password') or ""
+        store_dir_option = self._get_option('store_dir')
+        scope_option = self._get_option('scope')
+
+        valid_scopes = ['all', 'opt_trace', 'display_cursor']
+        if scope_option:
+            if scope_option not in valid_scopes:
+                error_msg = f"invalid --scope option: '{scope_option}'. Valid options are: {', '.join(valid_scopes)}. Setting default --scope=all."
+                self._log_warn(error_msg)
+                self.scope = "all"
+            else:
+                self.scope = scope_option
+
+        if store_dir_option is not None and store_dir_option != './':
+            if not os.path.exists(os.path.abspath(store_dir_option)):
+                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}]: No such directory, Now create it')
+                os.makedirs(os.path.abspath(store_dir_option))
+                self.store_dir = os.path.abspath(store_dir_option)
+            else:
+                self.store_dir = os.path.abspath(store_dir_option)
+
+        if self.context.get_variable("gather_trace_id", None):
+            trace_id = self.context.get_variable("gather_trace_id")
+            if not self.context.get_variable("gather_user"):
+                raise ValueError("gather_user not found in context variables")
+            user = self.context.get_variable("gather_user")
+
+        if self.context.get_variable("gather_password", None):
+            password = self.context.get_variable("gather_password")
+
+        if self.context.get_variable("store_dir", None):
+            self.store_dir = self.context.get_variable("store_dir")
+
+        if self.context.get_variable("dbms_xplan_scope", None):
+            self.scope = self.context.get_variable("dbms_xplan_scope")
+
+        if not trace_id:
+            raise ValueError("option --trace_id not found, please provide")
+
+        if not user:
+            raise ValueError("option --user not found, please provide")
+
+        env_option = self._get_option('env')
+        if env_option:
+            self.env = env_option
+
+        self.tenant_password = password
+        self.tenant_user = user
+        self.trace_id = trace_id
+
+        # Initialize config
         self.ob_cluster = self.context.cluster_config
         self.ob_nodes = self.context.cluster_config['servers']
         new_nodes = Util.get_nodes_list(self.context, self.ob_nodes, self.stdio)
         if new_nodes:
             self.ob_nodes = new_nodes
-        self.inner_config = self.context.inner_config
-        if self.inner_config is None:
-            self.file_number_limit = 20
-            self.file_size_limit = 2 * 1024 * 1024 * 1024
+
+        # Use ConfigAccessor if available
+        if self.config:
+            self.file_number_limit = self.config.gather_file_number_limit
+            self.file_size_limit = self.config.gather_file_size_limit
+            self.config_path = self.config.config_path
         else:
-            basic_config = self.inner_config['obdiag']['basic']
-            self.file_number_limit = int(basic_config["file_number_limit"])
-            self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
-            self.config_path = basic_config['config_path']
+            # Fallback to direct config access
+            if self.context.inner_config is None:
+                self.file_number_limit = 20
+                self.file_size_limit = 2 * 1024 * 1024 * 1024
+            else:
+                basic_config = self.context.inner_config['obdiag']['basic']
+                self.file_number_limit = int(basic_config["file_number_limit"])
+                self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
+                self.config_path = basic_config['config_path']
+
         self.ob_connector = OBConnector(
             context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.ob_cluster.get("tenant_sys").get("user"), password=self.ob_cluster.get("tenant_sys").get("password"), timeout=100
         )
+
         if self.is_scene:
             self.__init_db_conn(self.env)
         else:
             self.tenant_connector = OBConnector(context=self.context, ip=self.ob_cluster.get("db_host"), port=self.ob_cluster.get("db_port"), username=self.tenant_user, password=self.tenant_password, timeout=100, database=self.db_name)
-        self.file_name = "{0}/obdiag_dbms_xplan_display_cursor.txt".format(self.store_dir)
-        return True
 
-    def handle(self):
-        self.start_time = time.time()
-        if not self.init():
-            self.stdio.error('init failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init failed")
-        if not self.init_config():
-            self.stdio.error('init config failed')
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="init config failed")
-        excute_status = self.execute()
-        # recycle *_obdiag_*.trac in observer log dir
-        for node in self.ob_nodes:
-            try:
-                log_path = os.path.join(node.get("home_path"), "log")
-                ssh_client = SshClient(self.context, node)
-                self.stdio.verbose("node: {}. recycle *_obdiag_*.trac in observer log dir. obdiag will clean all '*_obdiag_*.trac'".format(ssh_client.get_name()))
-                ssh_client.exec_cmd(f"find {log_path} -type f -name '*_obdiag_*.trac' -exec rm -f {{}} +")
-            except Exception as e:
-                self.stdio.warn("node: {}. recycle *_obdiag_*.trac in observer log dir failed: {}".format(node.get("ip"), e))
-                pass
+        self.file_name = f"{self.store_dir}/obdiag_dbms_xplan_display_cursor.txt"
 
-        if not self.is_innner and excute_status:
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.store_dir})
-        return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="execute failed")
+    def handle(self) -> ObdiagResult:
+        """Main handle logic"""
+        self._validate_initialized()
+
+        try:
+            self.start_time = time.time()
+            excute_status = self.execute()
+
+            # recycle *_obdiag_*.trac in observer log dir
+            for node in self.ob_nodes:
+                try:
+                    log_path = os.path.join(node.get("home_path"), "log")
+                    ssh_client = SshClient(self.context, node)
+                    self._log_verbose(f"node: {ssh_client.get_name()}. recycle *_obdiag_*.trac in observer log dir. obdiag will clean all '*_obdiag_*.trac'")
+                    ssh_client.exec_cmd(f"find {log_path} -type f -name '*_obdiag_*.trac' -exec rm -f {{}} +")
+                except Exception as e:
+                    self._log_warn(f"node: {node.get('ip')}. recycle *_obdiag_*.trac in observer log dir failed: {e}")
+
+            if not self.is_innner and excute_status:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": self.store_dir})
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="execute failed")
+
+        except Exception as e:
+            return self._handle_error(e)
 
     def execute(self):
         try:
             self.version = get_observer_version(self.context)
             if StringUtils.compare_versions_lower(self.version, "4.2.5.0"):
-                self.stdio.error("DBMS_XPLAN feature requires OceanBase version >= 4.2.5.0. Current version: {0} is not supported.".format(self.version))
+                self._log_error(f"DBMS_XPLAN feature requires OceanBase version >= 4.2.5.0. Current version: {self.version} is not supported.")
                 return False
             raw_query_sql = self.__get_sql_audit_from_trace_id()
             if raw_query_sql:
@@ -182,10 +195,10 @@ class GatherDBMSXPLANHandler(SafeStdio):
                     self.get_display_cursor()
                 return True
             else:
-                self.stdio.error("The data queried with the specified trace_id {0} from gv$ob_sql_audit is empty. Please verify if this trace_id has expired.".format(self.trace_id))
+                self._log_error(f"The data queried with the specified trace_id {self.trace_id} from gv$ob_sql_audit is empty. Please verify if this trace_id has expired.")
                 return False
         except Exception as e:
-            self.stdio.error("get dbms_xplan result failed, error: {0}".format(e))
+            self._log_error(f"get dbms_xplan result failed, error: {e}")
             return False
 
     def get_display_cursor(self):
@@ -193,25 +206,25 @@ class GatherDBMSXPLANHandler(SafeStdio):
         display_cursor_sql = "SELECT DBMS_XPLAN.DISPLAY_CURSOR({plan_id}, 'all', '{svr_ip}',  {svr_port}, {tenant_id}) FROM DUAL".format(plan_id=self.plan_id, svr_ip=self.svr_ip, svr_port=self.svr_port, tenant_id=self.tenant_id)
         try:
             if not StringUtils.compare_versions_lower(self.version, "4.2.5.0"):
-                self.stdio.verbose("execute SQL: %s", display_cursor_sql)
+                self._log_verbose(f"execute SQL: {display_cursor_sql}")
                 plan_result = self.tenant_connector.execute_sql_pretty(display_cursor_sql)
                 if plan_result:
                     plan_result.align = 'l'
-                    result = 'obclient> ' + display_cursor_sql + '\n' + str(plan_result)
-                    self.stdio.verbose("dbms_xplan.display_cursor report complete")
+                    result = f'obclient> {display_cursor_sql}\n{str(plan_result)}'
+                    self._log_verbose("dbms_xplan.display_cursor report complete")
                     self.__report(result)
                     self.__print_display_cursor_result()
                 else:
-                    self.stdio.warn("the result of dbms_xplan.display_cursor is None")
+                    self._log_warn("the result of dbms_xplan.display_cursor is None")
             else:
-                self.stdio.warn("dbms_xplan.display_cursor report requires the OB version to be greater than 4.2.5.0 Your version: {0} does not meet this requirement.".format(self.version))
+                self._log_warn(f"dbms_xplan.display_cursor report requires the OB version to be greater than 4.2.5.0 Your version: {self.version} does not meet this requirement.")
         except Exception as e:
-            self.stdio.exception("dbms_xplan.display_cursor report> %s" % sql)
+            self.stdio.exception(f"dbms_xplan.display_cursor report> {display_cursor_sql}")
             self.stdio.exception(repr(e))
             pass
 
     def get_opt_trace(self):
-        self.stdio.verbose("Use {0} as pack dir.".format(self.store_dir))
+        self._log_verbose(f"Use {self.store_dir} as pack dir.")
         self.gather_tuples = []
 
         def handle_from_node(node):
@@ -227,20 +240,20 @@ class GatherDBMSXPLANHandler(SafeStdio):
             try:
                 for node in self.ob_nodes:
                     if node.get("ssh_type") == "docker" or node.get("ssh_type") == "kubernetes":
-                        self.stdio.warn("Skip gather from node {0} because it is a docker or kubernetes node".format(node.get("ip")))
+                        self._log_warn(f"Skip gather from node {node.get('ip')} because it is a docker or kubernetes node")
                         continue
                     handle_from_node(node)
                     if self.retry_opt_trace:
                         self.skip_gather = False
                         self.gather_tuples = []
-                        self.stdio.warn("failed to gather dbms_xplan.enable_opt_trace, wait to retry")
+                        self._log_warn("failed to gather dbms_xplan.enable_opt_trace, wait to retry")
                         raise
             except Exception as e:
                 raise e
 
         is_ready()
         summary_tuples = self.__get_overall_summary(self.gather_tuples)
-        self.stdio.print(summary_tuples)
+        self._log_info(summary_tuples)
 
     def __get_sql_audit_from_trace_id(self):
         sql = str(GlobalSqlMeta().get_value(key="sql_audit_by_trace_id_limit1_mysql")).replace("##REPLACE_TRACE_ID##", self.trace_id).replace("##REPLACE_SQL_AUDIT_TABLE_NAME##", "gv$ob_sql_audit").replace("##OB_VERSION_PARAMS_VALUE##", "params_value")
@@ -272,14 +285,14 @@ class GatherDBMSXPLANHandler(SafeStdio):
         if len(error_info) == 0:
             remote_ip = node.get("ip") if self.is_ssh else NetUtils.get_inner_ip(self.stdio)
             remote_user = node.get("ssh_username")
-            self.stdio.verbose("Sending Collect Shell Command to node {0} ...".format(remote_ip))
+            self._log_verbose(f"Sending Collect Shell Command to node {remote_ip} ...")
             DirectoryUtil.mkdir(path=local_stored_path, stdio=self.stdio)
             ssh_failed = False
             ssh_client = None
             try:
                 ssh_client = SshClient(self.context, node)
             except Exception as e:
-                self.stdio.exception("ssh {0}@{1}: failed, Please check the node conf.".format(remote_user, remote_ip))
+                self.stdio.exception(f"ssh {remote_user}@{remote_ip}: failed, Please check the node conf.")
                 ssh_failed = True
                 resp["skip"] = True
                 resp["error"] = "Please check the node conf."
@@ -316,25 +329,21 @@ class GatherDBMSXPLANHandler(SafeStdio):
                 if sql:
 
                     self.tenant_connector.execute_enable_opt_trace(self.opt_trace_file_suffix, sql)
-                    self.stdio.verbose("execute SQL: %s", sql)
-                    step = (
-                        "obclient> SET TRANSACTION ISOLATION LEVEL READ COMMITTED;\ncall dbms_xplan.enable_opt_trace();\ncall dbms_xplan.set_opt_trace_parameter(identifier=>'{0}', `level`=>3);\nexplain {1}\ncall dbms_xplan.disable_opt_trace();\n".format(
-                            self.opt_trace_file_suffix, sql
-                        )
-                    )
+                    self._log_verbose(f"execute SQL: {sql}")
+                    step = f"obclient> SET TRANSACTION ISOLATION LEVEL READ COMMITTED;\ncall dbms_xplan.enable_opt_trace();\ncall dbms_xplan.set_opt_trace_parameter(identifier=>'{self.opt_trace_file_suffix}', `level`=>3);\nexplain {sql}\ncall dbms_xplan.disable_opt_trace();\n"
                     self.__report(step)
-                    self.stdio.verbose("get dbms_xplan.enable_opt_trace complete")
+                    self._log_verbose("get dbms_xplan.enable_opt_trace complete")
                     return error_info
                 else:
                     error_info = "failed generat opt_trace: the input SQL is empty"
-                    self.stdio.error(error_info)
+                    self._log_error(error_info)
                     return error_info
             else:
-                error_info = "dbms_xplan.enable_opt_trace requires the OB version to be greater than 4.2.5.0 Your version: {0} does not meet this requirement.".format(self.version)
-                self.stdio.warn(error_info)
+                error_info = f"dbms_xplan.enable_opt_trace requires the OB version to be greater than 4.2.5.0 Your version: {self.version} does not meet this requirement."
+                self._log_warn(error_info)
                 return error_info
         except Exception as e:
-            error_info = "dbms_xplan.enable_opt_trace generate failed > %s" % e
+            error_info = f"dbms_xplan.enable_opt_trace generate failed > {e}"
             self.stdio.exception(error_info)
             return error_info
 
@@ -347,23 +356,23 @@ class GatherDBMSXPLANHandler(SafeStdio):
             with open(self.file_name, 'a', encoding='utf-8') as f:
                 f.write(data + '\n')
         except Exception as e:
-            self.stdio.error("report result to file: {0} failed, error: {1}".format(self.file_name, e))
+            self._log_error(f"report result to file: {self.file_name} failed, error: {e}")
 
     def __print_display_cursor_result(self):
         self.end_time = time.time()
         elapsed_time = self.end_time - self.start_time
         data = [["Status", "Result Details", "Time"], ["Completed", self.file_name, f"{elapsed_time:.2f} s"]]
         table = tabulate(data, headers="firstrow", tablefmt="grid")
-        self.stdio.print("\nGather dbms_xplan.display_cursor:")
-        self.stdio.print(table)
-        self.stdio.print("\n")
+        self._log_info("\nGather dbms_xplan.display_cursor:")
+        self._log_info(table)
+        self._log_info("\n")
         return
 
     def __init_db_conn(self, env):
         try:
             # env must be a list from parse_env_display (action="append")
             if not isinstance(env, list):
-                self.stdio.error("Invalid env format. Please use --env key=value format, e.g., --env host=127.0.0.1 --env port=2881 --env user=test --env password=****** --env database=test")
+                self._log_error("Invalid env format. Please use --env key=value format, e.g., --env host=127.0.0.1 --env port=2881 --env user=test --env password=****** --env database=test")
                 return False
 
             env_dict = StringUtils.parse_env_display(env)
@@ -372,17 +381,17 @@ class GatherDBMSXPLANHandler(SafeStdio):
             # Build db_info directly from env_dict parameters (no db_connect string parsing)
             self.db_conn = StringUtils.build_db_info_from_env(env_dict, self.stdio)
             if not self.db_conn:
-                self.stdio.error("Failed to build database connection information from env parameters")
+                self._log_error("Failed to build database connection information from env parameters")
                 return False
 
             if StringUtils.validate_db_info(self.db_conn):
                 self.__init_tenant_connector()
                 return True
             else:
-                self.stdio.error("db connection information required: --env host=... --env port=... --env user=... --env password=... --env database=...")
+                self._log_error("db connection information required: --env host=... --env port=... --env user=... --env password=... --env database=...")
                 return False
         except Exception as e:
-            self.stdio.exception("init db connector, error: {0}, please check --env option ".format(e))
+            self.stdio.exception(f"init db connector, error: {e}, please check --env option")
 
     def __init_tenant_connector(self):
         self.tenant_connector = OBConnector(

@@ -47,7 +47,7 @@ class TransactionExecuteTimeoutScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -135,7 +135,7 @@ class TransactionExecuteTimeoutScene(RcaScene):
             if cur_query_start_time and timeout_timestamp:
                 break
             try:
-                with open(log_name, 'r', encoding='utf-8') as f:
+                with open(log_name, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
 
                     # Find query start time
@@ -206,7 +206,7 @@ class TransactionExecuteTimeoutScene(RcaScene):
 
         for log_name in logs_name:
             try:
-                with open(log_name, 'r', encoding='utf-8') as f:
+                with open(log_name, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.readlines()
                     for line in content:
                         if 'dump tenant' in line:
@@ -241,7 +241,7 @@ class TransactionExecuteTimeoutScene(RcaScene):
                 count = 0
                 for log_name in logs_name:
                     try:
-                        with open(log_name, 'r') as f:
+                        with open(log_name, 'r', encoding='utf-8', errors='ignore') as f:
                             count += len(f.readlines())
                     except Exception:
                         pass

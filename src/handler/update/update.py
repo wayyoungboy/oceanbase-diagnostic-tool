@@ -13,11 +13,12 @@
 """
 @time: 2024/2/1
 @file: update.py
-@desc:
+@desc: Handler for updating obdiag files (Migrated to BaseHandler)
 """
 import os
 import shutil
 import time
+from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import FileUtil
 from src.common.tool import NetUtils
@@ -30,23 +31,25 @@ from src.common.result_type import ObdiagResult
 
 
 # for update obdiag files without obdiag
-class UpdateHandler:
-    def __init__(self, context):
-        self.context = context
-        self.stdio = context.stdio
+class UpdateHandler(BaseHandler):
+    def _init(self, **kwargs):
+        """Subclass initialization"""
         self.local_update_file_sha = ""
         self.local_obdiag_version = OBDIAG_VERSION
         self.remote_obdiag_version = ""
         self.remote_tar_sha = ""
-        self.options = self.context.options
         self.file_path = ""
         self.force = False
-        # on obdiag update command
-        if context.namespace.spacename == "update":
-            self.file_path = Util.get_option(self.options, 'file', default="")
-            self.force = Util.get_option(self.options, 'force', default=False)
 
-    def handle(self):
+        # on obdiag update command
+        if self.context and self.context.namespace and self.context.namespace.spacename == "update":
+            self.file_path = self._get_option('file', default="")
+            self.force = self._get_option('force', default=False)
+
+    def handle(self) -> ObdiagResult:
+        """Handle update command"""
+        self._validate_initialized()
+
         try:
             file_path = self.file_path
             force = self.force
@@ -56,36 +59,43 @@ class UpdateHandler:
             remote_update_file_name = const.UPDATE_REMOTE_UPDATE_FILE_NAME
             local_update_file_name = os.path.expanduser('~/.obdiag/data.tar')
             local_update_log_file_name = os.path.expanduser('~/.obdiag/data_version.yaml')
+
             if file_path and file_path != "":
                 return self.handle_update_offline(file_path)
+
             if NetUtils.network_connectivity(remote_server) is False:
-                self.stdio.warn("[update] network connectivity failed. Please check your network connection.")
+                self._log_warn("[update] network connectivity failed. Please check your network connection.")
                 return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="network connectivity failed. Please check your network connection.")
+
             NetUtils.download_file(remote_version_file_name, os.path.expanduser(local_version_file_name))
             with open(local_version_file_name, 'r') as file:
                 remote_data = yaml.safe_load(file)
+
             if remote_data.get("obdiag_version") is None:
-                self.stdio.warn("obdiag_version is None. Do not perform the upgrade process.")
+                self._log_warn("obdiag_version is None. Do not perform the upgrade process.")
                 return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="obdiag_version is None. Do not perform the upgrade process.")
             else:
                 self.remote_obdiag_version = remote_data["obdiag_version"].strip()
+
             if StringUtils.compare_versions_greater(self.remote_obdiag_version, self.local_obdiag_version):
-                self.stdio.warn(
-                    "remote_obdiag_version is {0}. local_obdiag_version is {1}. "
+                self._log_warn(
+                    f"remote_obdiag_version is {self.remote_obdiag_version}. local_obdiag_version is {self.local_obdiag_version}. "
                     "remote_obdiag_version>local_obdiag_version. Unable to update dependency files, please upgrade "
-                    "obdiag. Do not perform the upgrade process.".format(self.remote_obdiag_version, self.local_obdiag_version)
+                    "obdiag. Do not perform the upgrade process."
                 )
                 return ObdiagResult(
                     ObdiagResult.SERVER_ERROR_CODE,
-                    error_data="remote_obdiag_version is {0}. local_obdiag_version is {1}. "
+                    error_data=f"remote_obdiag_version is {self.remote_obdiag_version}. local_obdiag_version is {self.local_obdiag_version}. "
                     "remote_obdiag_version>local_obdiag_version. Unable to update dependency files, please upgrade "
-                    "obdiag. Do not perform the upgrade process.".format(self.remote_obdiag_version, self.local_obdiag_version),
+                    "obdiag. Do not perform the upgrade process.",
                 )
+
             if remote_data.get("remote_tar_sha") is None:
-                self.stdio.warn("remote_tar_sha is None. Do not perform the upgrade process.")
+                self._log_warn("remote_tar_sha is None. Do not perform the upgrade process.")
                 return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="remote_tar_sha is None. Do not perform the upgrade process.")
             else:
                 self.remote_tar_sha = remote_data["remote_tar_sha"]
+
             # need update?
             # get local sha
             if force is False:
@@ -93,19 +103,21 @@ class UpdateHandler:
                     with open(os.path.expanduser(local_update_log_file_name), 'r') as file:
                         local_data = yaml.safe_load(file)
                     if local_data.get("remote_tar_sha") is not None and local_data.get("remote_tar_sha") == self.remote_tar_sha:
-                        self.stdio.warn("[update] remote_tar_sha as local_tar_sha. No need to update.")
+                        self._log_warn("[update] remote_tar_sha as local_tar_sha. No need to update.")
                         return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"msg": "remote_tar_sha as local_tar_sha. No need to update."})
                     # get data_update_time
                     if local_data.get("data_update_time") is not None and time.time() - local_data["data_update_time"] < 3600 * 24 * 7:
-                        self.stdio.warn("[update] data_update_time No need to update.")
-                        return
+                        self._log_warn("[update] data_update_time No need to update.")
+                        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"msg": "No need to update"})
+
             # download_update_files
             NetUtils.download_file(remote_update_file_name, local_update_file_name)
             # check_sha
             self.local_update_file_sha = FileUtil.calculate_sha256(local_update_file_name)
             if self.remote_tar_sha != self.local_update_file_sha:
-                self.stdio.warn("remote_tar_sha is {0}, but local_tar_sha is {1}. Unable to update dependency files. Do not perform the upgrade process.".format(self.remote_tar_sha, self.local_update_file_sha))
-                return
+                self._log_warn(f"remote_tar_sha is {self.remote_tar_sha}, but local_tar_sha is {self.local_update_file_sha}. Unable to update dependency files. Do not perform the upgrade process.")
+                return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"SHA mismatch: remote={self.remote_tar_sha}, local={self.local_update_file_sha}")
+
             # move old files
             ## check_old_files
             if os.path.exists(os.path.expanduser("~/.obdiag/check.d")):
@@ -123,27 +135,28 @@ class UpdateHandler:
                 shutil.rmtree(os.path.expanduser("~/.obdiag/rca.d"))
             if os.path.exists(os.path.expanduser("~/.obdiag/rca")):
                 os.rename(os.path.expanduser("~/.obdiag/rca"), os.path.expanduser("~/.obdiag/rca.d"))
+
             # decompression remote files
             FileUtil.extract_tar(os.path.expanduser(local_update_file_name), os.path.expanduser("~/.obdiag"))
             # update data save
             with open(os.path.expanduser("~/.obdiag/data_version.yaml"), 'w') as f:
                 yaml.dump({"data_update_time": int(time.time()), "remote_tar_sha": self.remote_tar_sha}, f)
-            self.stdio.print("[update] Successfully updated. The original data is stored in the *. d folder.")
+
+            self._log_info("[update] Successfully updated. The original data is stored in the *. d folder.")
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"msg": "Successfully updated. The original data is stored in the *. d folder."})
         except Exception as e:
-            self.stdio.warn('[update] Failed to update. Error message: {0}'.format(e))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="Failed to update. Error message: {0}".format(e))
+            return self._handle_error(e)
 
     def handle_update_offline(self, file):
         file = os.path.expanduser(file)
 
         self.local_update_file_sha = FileUtil.calculate_sha256(file)
         if os.path.exists(file) is False:
-            self.stdio.error('{0} does not exist.'.format(file))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="{0} does not exist.".format(file))
+            self._log_error(f'{file} does not exist.')
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"{file} does not exist.")
         if not file.endswith('.tar'):
-            self.stdio.error('{0} is not a tar file.'.format(file))
-            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data="{0} is not a tar file.".format(file))
+            self._log_error(f'{file} is not a tar file.')
+            return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=f"{file} is not a tar file.")
         ## check_old_files
         if os.path.exists(os.path.expanduser("~/.obdiag/check.d")):
             shutil.rmtree(os.path.expanduser("~/.obdiag/check.d"))
@@ -164,5 +177,5 @@ class UpdateHandler:
         # update data save
         with open(os.path.expanduser("~/.obdiag/data_version.yaml"), 'w') as f:
             yaml.dump({"data_update_time": int(time.time()), "remote_tar_sha": self.remote_tar_sha}, f)
-        self.stdio.print("[update] Successfully updated. The original data is stored in the *. d folder.")
+        self._log_info("[update] Successfully updated. The original data is stored in the *. d folder.")
         return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"msg": "Successfully updated. The original data is stored in the *. d folder."})

@@ -52,7 +52,7 @@ class DisconnectionScene(RcaScene):
 
     def execute(self):
         for node in self.obproxy_nodes:
-            self.__execute_obproxy_one_node(node)
+            self._execute_obproxy_one_node(node)
         self.stdio.verbose("end disconnectionScene execute all nodes")
 
     def get_scene_info(self):
@@ -63,7 +63,7 @@ class DisconnectionScene(RcaScene):
             "info_cn": "针对断链接场景的根因分析",
         }
 
-    def __execute_obproxy_one_node(self, node):
+    def _execute_obproxy_one_node(self, node):
         self.gather_log.grep("CONNECTION](trace_type")
         self.gather_log.set_parameters("nodes_list", [node])
         self.gather_log.set_parameters("target", "obproxy")
@@ -94,7 +94,7 @@ class DisconnectionScene(RcaScene):
             if parses_number >= self.max_parses_number:
                 break
             self.stdio.verbose("read the log file: {0}".format(name))
-            with open(name, 'r', errors='ignore') as f:
+            with open(name, 'r', encoding='utf-8', errors='ignore') as f:
                 log_list = f.read().strip().split('\n')
                 for line in log_list:
                     try:
@@ -180,7 +180,7 @@ class DisconnectionLog:
                 for log_name in logs_name:
                     if observer_trace_id != "Y0-0000000000000000-0-0":
                         break
-                    with open(log_name, 'r', errors='ignore') as f:
+                    with open(log_name, 'r', encoding='utf-8', errors='ignore') as f:
                         log_list = f.read().strip().split('\n')
                         for line in log_list:
                             if "session_id:" in line and "trace_id:" in line:

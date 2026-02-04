@@ -35,7 +35,7 @@ class IndexDDLErrorScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.2.3.0
+        # observer version >= 4.2.3.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")

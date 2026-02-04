@@ -34,7 +34,7 @@ class ClogDiskFullScene(RcaScene):
 
     def init(self, context):
         super().init(context)
-        ## observer version>4.0.0.0
+        # observer version >= 4.0.0.0
         observer_version = self.observer_version
         if observer_version is None or len(observer_version.strip()) == 0:
             raise RCAInitException("observer version is None. Please check the NODES conf.")
@@ -122,11 +122,10 @@ class ClogDiskFullScene(RcaScene):
             self.stdio.verbose("end ClogDiskFullScene execute")
 
     def get_scene_info(self):
-
         return {
             "name": "clog_disk_full",
             "info_en": "Identify the issue of clog disk space being full.",
-            "info_cn": 'clog日志磁盘空间满的问题',
+            "info_cn": "clog日志磁盘空间满的问题",
         }
 
 
@@ -143,11 +142,11 @@ class ClogDiskFullChecker:
             raise Exception('ls_id can not be none')
         self.record = record or RCA_ResultRecord(stdio=self.stdio)
         self.work_path = work_path or "./ClogDiskFull"
-        self.work_path = self.work_path + "/tenant_id_{0}/ls_id_{1}".format(self.tenant_id, self.ls_id)
-        if not os.path.exists(work_path):
-            os.makedirs(work_path)
-        self.stdio.verbose("work_path is {0}".format(self.work_path))
+        self.work_path = os.path.join(self.work_path, "tenant_id_{0}".format(self.tenant_id), "ls_id_{1}".format(self.ls_id))
+        if not os.path.exists(self.work_path):
+            os.makedirs(self.work_path)
         self.stdio = stdio
+        self.stdio.verbose("work_path is {0}".format(self.work_path))
         self.input_parameters = context.get_variable("input_parameters") or {}
 
     def execute(self):
@@ -155,9 +154,9 @@ class ClogDiskFullChecker:
             work_path = self.work_path
             if not os.path.exists(work_path):
                 os.makedirs(work_path)
-            # __check_checkpoint
+            # Check checkpoint
             self.record.add_record("check_checkpoint")
-            work_path_checkpoint = work_path + "/checkpoint/"
+            work_path_checkpoint = os.path.join(work_path, "checkpoint")
             # gather log about tenant_id, ls, "clog checkpoint no change".
             self.gather_log.set_parameters("scope", "observer")
             self.gather_log.grep("{0}".format(self.tenant_id))
@@ -177,19 +176,19 @@ class ClogDiskFullChecker:
             for log_name in logs_name:
                 if is_clog_checkpoint_stuck:
                     break
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         self.stdio.verbose("line is {0}".format(line))
-                        checkpoint_scn = self.parse_checkpoint_scn(line)
+                        checkpoint_scn = self._parse_checkpoint_scn(line)
                         scn_time = datetime.datetime.fromtimestamp(float(checkpoint_scn) / 1000000000)
-                        log_time = self.parse_log_time(line)
+                        log_time = self._parse_log_time(line)
                         stuck_delta = datetime.timedelta(minutes=2)
                         if log_time - scn_time > stuck_delta:
                             is_clog_checkpoint_stuck = True
                             self.record.add_record("is_clog_checkpoint_stuck is {0}".format(is_clog_checkpoint_stuck))
                             self.record.add_record("the log is {0}".format(line))
-                            stuck_service_type = self.get_stuck_mod(line).get('service_type') or "unknown"
+                            stuck_service_type = self._get_stuck_mod(line).get('service_type') or "unknown"
                             self.record.add_record("stuck_service_type is {0}".format(stuck_service_type))
                             break
             if is_clog_checkpoint_stuck is False:
@@ -201,7 +200,7 @@ class ClogDiskFullChecker:
                 self.record.add_record("stuck_service_type  is {0}, not 'TRANS_SERVICE'. pass __get_min_ckpt_type".format(stuck_service_type))
                 pass
             else:
-                work_path_get_min_ckpt_type = work_path + "/get_min_ckpt_type/"
+                work_path_get_min_ckpt_type = os.path.join(work_path, "get_min_ckpt_type")
                 # gather log about tenant_id, ls, "ObLSTxService::get_rec_scn"
                 self.gather_log.set_parameters("scope", "observer")
                 self.gather_log.grep("{0}".format(self.tenant_id))
@@ -215,15 +214,15 @@ class ClogDiskFullChecker:
                 for log_name in logs_name:
                     if check_min_ckpt_type:
                         break
-                    with open(log_name, "r") as f:
+                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
                         for line in lines:
                             if "ObLSTxService::get_rec_scn" in line:
                                 check_min_ckpt_type = True
                                 self.record.add_record("get min ckpt type is on {0}".format(line))
-                                min_checkpoint_tx_log_type = self.get_stuck_mod(line).get('common_checkpoint_type') or "unknown"
+                                min_checkpoint_tx_log_type = self._get_stuck_mod(line).get('common_checkpoint_type') or "unknown"
                                 self.record.add_record("min_checkpoint_tx_log_type is {0}".format(min_checkpoint_tx_log_type))
-                                min_checkpoint_scn = self.parse_min_checkpoint_scn(line)
+                                min_checkpoint_scn = self._parse_min_checkpoint_scn(line)
                                 self.record.add_record("min_checkpoint_scn is {0}".format(min_checkpoint_scn))
                                 self.record.add_suggest("min_checkpoint_tx_log_type is {0}. please check it.".format(min_checkpoint_tx_log_type))
                                 break
@@ -234,7 +233,7 @@ class ClogDiskFullChecker:
                 self.record.add_record("stuck_service_type is {0} (not TRANS_SERVICE or MAX_DECIDED_SCN). pass __check_replay_stuck. ".format(stuck_service_type))
                 pass
             else:
-                work_path_check_replay_stack = work_path + "/check_replay_stuck/"
+                work_path_check_replay_stack = os.path.join(work_path, "check_replay_stuck")
                 # gather log about tenant_id, ls, "get_min_unreplayed_log_info"
                 self.gather_log.set_parameters("scope", "observer")
                 self.gather_log.grep("{0}".format(self.tenant_id))
@@ -248,16 +247,16 @@ class ClogDiskFullChecker:
                 for log_name in logs_name:
                     if check_replay_stuck:
                         break
-                    with open(log_name, "r") as f:
+                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
                         for line in lines:
                             if check_replay_stuck:
                                 break
-                            if "get_min_unreplayed_log_info" in line and self.get_stuck_modV2(line).get('role_') is not None:
+                            if "get_min_unreplayed_log_info" in line and self._get_stuck_mod_v2(line).get('role_') is not None:
 
-                                replay_scn = self.parse_replay_scn(line)
+                                replay_scn = self._parse_replay_scn(line)
                                 replay_scn_time = datetime.datetime.fromtimestamp(float(replay_scn) / 1000000000)
-                                log_time = self.parse_log_time(line)
+                                log_time = self._parse_log_time(line)
                                 check_replay_stuck = log_time - replay_scn_time > datetime.timedelta(minutes=0.5)
                                 if check_replay_stuck:
                                     self.record.add_record("check_replay_stuck is True. the line: {0}".format(line))
@@ -275,7 +274,7 @@ class ClogDiskFullChecker:
             if stuck_service_type != 'TRANS_SERVICE':
                 self.record.add_record("stuck_service_type is {0} (not TRANS_SERVICE ). pass __check_dump_stuck.".format(stuck_service_type))
             else:
-                work_path_check_dump_stuck = work_path + "/check_dump_stuck/"
+                work_path_check_dump_stuck = os.path.join(work_path, "check_dump_stuck")
                 # gather log about tenant_id, "log_frozen_memstore_info_if_need_", "[TenantFreezer] oldest frozen memtable"
                 self.gather_log.set_parameters("scope", "observer")
                 self.gather_log.grep("{0}".format(self.tenant_id))
@@ -289,7 +288,7 @@ class ClogDiskFullChecker:
                 for log_name in logs_name:
                     if check_dump_stuck:
                         break
-                    with open(log_name, "r") as f:
+                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                         lines = f.readlines()
                         for line in lines:
                             if check_dump_stuck:
@@ -313,7 +312,7 @@ class ClogDiskFullChecker:
             self.record.add_record("check_dump_stuck end")
             self.record.add_record("check_data_disk_full start")
             check_data_disk_full = False
-            work_path_check_data_disk_full = work_path + "/check_data_disk_full/"
+            work_path_check_data_disk_full = os.path.join(work_path, "check_data_disk_full")
             # gather log about tenant_id, "Server out of disk space"
             self.gather_log.set_parameters("scope", "observer")
             self.gather_log.grep("{0}".format(self.tenant_id))
@@ -325,7 +324,7 @@ class ClogDiskFullChecker:
             for log_name in logs_name:
                 if check_data_disk_full:
                     break
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "Server out of disk space" in line:
@@ -338,7 +337,7 @@ class ClogDiskFullChecker:
             self.record.add_record("check_data_disk_full end")
             self.record.add_record("check_too_many_sstable start")
             check_too_many_sstable = False
-            work_path_check_too_many_sstable = work_path + "/check_too_many_sstable/"
+            work_path_check_too_many_sstable = os.path.join(work_path, "check_too_many_sstable")
             # gather log about tenant_id, "Too many sstables in tablet, cannot schdule mini compaction, retry later"
             self.gather_log.set_parameters("scope", "observer")
             self.gather_log.grep("{0}".format(self.tenant_id))
@@ -350,7 +349,7 @@ class ClogDiskFullChecker:
             for log_name in logs_name:
                 if check_too_many_sstable:
                     break
-                with open(log_name, "r") as f:
+                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "Too many sstables in tablet, cannot schdule mini compaction, retry later" in line:
@@ -367,7 +366,8 @@ class ClogDiskFullChecker:
             self.record.add_record("check error: {0}".format(e))
             return False
 
-    def get_stuck_mod(self, line):
+    def _get_stuck_mod(self, line):
+        """Extract key-value pairs from log line in format key="value"."""
         d = dict()
         # service_type="TRANS_SERVICE"
         p = '(?P<key>[\w|_]+)=\"(?P<value>\w+)\"'
@@ -376,7 +376,8 @@ class ClogDiskFullChecker:
             d[i.group('key')] = i.group('value')
         return d
 
-    def get_stuck_modV2(self, line):
+    def _get_stuck_mod_v2(self, line):
+        """Extract key-value pairs from log line in format key:value."""
         d = dict()
         # service_type="TRANS_SERVICE"
         p = '(?P<key>[\w|_]+):(?P<value>\w+)'
@@ -385,7 +386,8 @@ class ClogDiskFullChecker:
             d[i.group('key')] = i.group('value')
         return d
 
-    def parse_checkpoint_scn(self, line):
+    def _parse_checkpoint_scn(self, line):
+        """Parse checkpoint SCN from log line."""
         p = "checkpoint_scn=\{val:(?P<checkpoint_scn>\d+)\},"
         p1 = "checkpoint_scn=\{val:(?P<checkpoint_scn>\d+),"
         m = re.search(p, line)
@@ -396,7 +398,8 @@ class ClogDiskFullChecker:
             scn = int(m.group('checkpoint_scn'))
         return scn
 
-    def parse_log_time(self, line):
+    def _parse_log_time(self, line):
+        """Parse log timestamp from log line."""
         p = "\[(?P<date_time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\]"
         m = re.search(p, line)
         t = None
@@ -404,7 +407,8 @@ class ClogDiskFullChecker:
             t = datetime.datetime.strptime(m.group('date_time'), "%Y-%m-%d %H:%M:%S.%f")
         return t
 
-    def parse_min_checkpoint_scn(self, line):
+    def _parse_min_checkpoint_scn(self, line):
+        """Parse minimum checkpoint SCN from log line."""
         p = "min_rec_scn=\{val:(?P<checkpoint_scn>\d+)\},"
         p1 = "min_rec_scn=\{val:(?P<checkpoint_scn>\d+),"
         m = re.search(p, line)
@@ -415,7 +419,8 @@ class ClogDiskFullChecker:
             scn = int(m.group('checkpoint_scn'))
         return scn
 
-    def parse_replay_scn(self, line):
+    def _parse_replay_scn(self, line):
+        """Parse replay SCN from log line."""
         p = "scn=\{val:(?P<scn>\d+)\},"
         p1 = "scn=\{val:(?P<scn>\d+),"
         m = re.search(p, line)
