@@ -71,8 +71,10 @@ class TestLocalClient(unittest.TestCase):
         result = self.local_client.run(cmd)
 
         # 验证 verbose 调用和异常处理
+        # Updated: Exception message is now included in error log for better debugging
         self.stdio.verbose.assert_called_with("[local host] run cmd = [echo \"hello\"] on localhost")
-        self.stdio.error.assert_called_with("run cmd = [echo \"hello\"] on localhost")
+        self.stdio.error.assert_called_with("run cmd = [echo \"hello\"] on localhost, error: Test exception")
+        self.stdio.exception.assert_called_with("")
         self.assertIsNone(result)
 
     @patch('subprocess.Popen')
@@ -124,8 +126,10 @@ class TestLocalClient(unittest.TestCase):
         result = self.local_client.run_get_stderr(cmd)
 
         # 验证 verbose 调用和异常处理
+        # Updated: Exception message is now included in error log for better debugging
         self.stdio.verbose.assert_called_with("run cmd = [echo \"hello\"] on localhost")
-        self.stdio.error.assert_called_with(f"run cmd = [{cmd}] on localhost")
+        self.stdio.error.assert_called_with(f"run cmd = [{cmd}] on localhost, error: Test exception")
+        self.stdio.exception.assert_called_with("")
         self.assertIsNone(result)
 
     def test_download_file_success(self):
