@@ -148,7 +148,7 @@ class ConfigAccessor:
         """
         Get the underlying configuration dictionary from inner_config.
         Handles both InnerConfigManager objects and plain dictionaries.
-        
+
         Returns:
             dict: Configuration dictionary, or empty dict if not available
         """
@@ -168,7 +168,7 @@ class ConfigAccessor:
         config_dict = self._get_config_dict()
         work_path = config_dict.get("gather", {}).get("work_path")
         return ConfigValue(work_path, default="~/.obdiag/gather").get_path()
-    
+
     @property
     def gather_scenes_base_path(self) -> str:
         """Get gather scenes base path (derived from work_path + tasks)"""

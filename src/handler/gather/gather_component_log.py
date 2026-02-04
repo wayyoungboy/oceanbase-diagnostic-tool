@@ -244,7 +244,7 @@ class GatherComponentLogHandler(BaseHandler):
         if hasattr(self, '_time_range_info_printed'):
             return
         self._time_range_info_printed = True
-        
+
         if self.recent_count > 0:
             self._log_info(f'gather log with recent_count: {self.recent_count} (most recent {self.recent_count} files per log type)')
         else:
@@ -380,13 +380,13 @@ class GatherComponentLogHandler(BaseHandler):
         """Execute tasks in parallel using ThreadPoolExecutor for I/O-intensive log gathering"""
         if not tasks:
             return
-        
+
         actual_workers = min(self.thread_nums, len(tasks))
         self._log_verbose(f"Executing {len(tasks)} tasks with {actual_workers} workers")
 
         with ThreadPoolExecutor(max_workers=actual_workers) as executor:
             future_to_task = {executor.submit(task.handle): task for task in tasks}
-            
+
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 try:

@@ -170,7 +170,7 @@ class AnalyzeMemoryHandler(BaseHandler):
             # Execute nodes in parallel using ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=actual_workers) as executor:
                 future_to_node = {executor.submit(self.__handle_from_node, node, local_store_parent_dir): node for node in nodes_to_process}
-                
+
                 for future in as_completed(future_to_node):
                     node = future_to_node[future]
                     try:

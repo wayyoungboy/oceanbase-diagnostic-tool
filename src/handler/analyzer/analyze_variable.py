@@ -147,28 +147,30 @@ class AnalyzeVariableHandler(BaseHandler):
             if key in file_variable_dict and db_variable_dict[key] != file_variable_dict[key]:
                 changed_variables_dict[key] = file_variable_dict[key]
         is_empty = True
-        
+
         # Prepare structured data for JSON output (when silent mode)
         structured_data = []
-        
+
         for k in changed_variables_dict:
             for row in db_variable_info:
                 key = str(row[1]) + '-' + str(row[3])
                 if k == key:
                     report_default_tb.add_row([row[0], row[1], row[2], row[3], changed_variables_dict[key], row[5]])
                     is_empty = False
-                    
+
                     # Build structured data for JSON output
                     if self.stdio and self.stdio.silent:
-                        structured_data.append({
-                            "version": str(row[0]) if row[0] else None,
-                            "tenant_id": int(row[1]) if row[1] else None,
-                            "zone": str(row[2]) if row[2] else None,
-                            "name": str(row[3]) if row[3] else None,
-                            "last_value": changed_variables_dict[key],
-                            "current_value": str(row[5]) if row[5] else None
-                        })
-        
+                        structured_data.append(
+                            {
+                                "version": str(row[0]) if row[0] else None,
+                                "tenant_id": int(row[1]) if row[1] else None,
+                                "zone": str(row[2]) if row[2] else None,
+                                "name": str(row[3]) if row[3] else None,
+                                "last_value": changed_variables_dict[key],
+                                "current_value": str(row[5]) if row[5] else None,
+                            }
+                        )
+
         if not is_empty:
             now = datetime.datetime.now()
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
@@ -179,7 +181,7 @@ class AnalyzeVariableHandler(BaseHandler):
             self._log_info(Fore.RED + f"Since {last_gather_time}, the following variables have changed：" + Style.RESET_ALL)
             self._log_info(report_default_tb.get_string())
             self._log_info("Analyze variables changed finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
-            
+
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name, "last_gather_time": last_gather_time})

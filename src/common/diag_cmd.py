@@ -295,21 +295,23 @@ class ObdiagOriginCommand(BaseCommand):
                 ROOT_IO.exception(e)
                 ROOT_IO.error('command failed. Please contact OceanBase community. e: {0}'.format(e))
                 ret = ObdiagResult(code=ObdiagResult.SERVER_ERROR_CODE, error_data="command failed. Please contact OceanBase community. e: {0}".format(e))
-            
+
             # Ensure ret is ObdiagResult
             if not isinstance(ret, ObdiagResult):
                 ROOT_IO.error('The return value of the command is not ObdiagResult. Please contact OceanBase community. The return value is: {0}'.format(ret))
                 ret = ObdiagResult(code=ObdiagResult.SERVER_ERROR_CODE, error_data="The return value of the command is not ObdiagResult. Maybe the command not support silent. Please contact thebase community.")
-            
+
             # Set trace_id and command for result
             ret.set_trace_id(self.trace_id)
+
             def args_to_str(args):
                 args_str = ""
                 for arg in args:
                     args_str += arg + " "
                 return args_str.strip()
+
             ret.set_command(self.prev_cmd + " " + args_to_str(self.args))
-            
+
             # if silent is true ,print ret
             if ROOT_IO.silent:
                 ROOT_IO.set_silent(False)
@@ -320,7 +322,7 @@ class ObdiagOriginCommand(BaseCommand):
                 else:
                     ROOT_IO.print(ret.get_result())
                 ROOT_IO.set_silent(True)
-            
+
             if self.has_trace and not ROOT_IO.silent:
                 ROOT_IO.print('Trace ID: %s' % self.trace_id)
                 ROOT_IO.print('If you want to view detailed obdiag logs, please run: {0} display-trace {1}'.format(obdiag_bin, self.trace_id))
@@ -328,7 +330,7 @@ class ObdiagOriginCommand(BaseCommand):
             # check obdiag new version
             if not ROOT_IO.silent:
                 check_new_obdiag_version(ROOT_IO)
-            
+
             # Return success status based on ObdiagResult code
             # This ensures both silent and non-silent modes return correct exit codes
             return ret.get_code() == ObdiagResult.SUCCESS_CODE
@@ -1458,11 +1460,11 @@ class MainCommand(MajorCommand):
 
 class ObdiagCompleteCommand(BaseCommand):
     """Generate shell completion for obdiag - hidden command for shell completion"""
-    
+
     def __init__(self):
         super(ObdiagCompleteCommand, self).__init__('complete', 'Generate shell completion')
         self.hidden = True  # Hide from help output
-    
+
     def do_command(self):
         """Handle completion request from shell"""
         try:
@@ -1470,17 +1472,17 @@ class ObdiagCompleteCommand(BaseCommand):
             comp_line = os.environ.get('COMP_LINE', '')
             comp_point = int(os.environ.get('COMP_POINT', len(comp_line)))
             comp_cword = int(os.environ.get('COMP_CWORD', 0))
-            
+
             # Parse command line
             words = comp_line[:comp_point].split() if comp_line else []
             if len(words) < comp_cword:
                 return True
-            
+
             cur_word = words[comp_cword] if comp_cword < len(words) else ''
-            
+
             # Get completion suggestions
             completions = self._get_completions(words, comp_cword, cur_word)
-            
+
             # Output completion list (one per line)
             for comp in completions:
                 if comp.startswith(cur_word):
@@ -1488,26 +1490,26 @@ class ObdiagCompleteCommand(BaseCommand):
         except Exception:
             # Silently fail on errors to avoid breaking shell completion
             pass
-        
+
         return True
-    
+
     def _get_completions(self, words, comp_cword, cur_word):
         """Get completion suggestions based on context"""
         completions = []
-        
+
         try:
             # Create MainCommand instance to access command registry
             # Note: This is safe because completion is called in a separate process
             # and MainCommand initialization doesn't depend on ObdiagCompleteCommand
             main_cmd = MainCommand()
-            
+
             # First level: main commands
             if comp_cword == 1:
                 for cmd_name, cmd_obj in main_cmd.commands.items():
                     if not getattr(cmd_obj, 'hidden', False):
                         completions.append(cmd_name)
                 completions.extend(['--version', '--help'])
-            
+
             # Second level: subcommands
             elif comp_cword == 2 and len(words) > 1:
                 cmd_name = words[1]
@@ -1517,13 +1519,13 @@ class ObdiagCompleteCommand(BaseCommand):
                         for subcmd_name, subcmd_obj in cmd_obj.commands.items():
                             if not getattr(subcmd_obj, 'hidden', False):
                                 completions.append(subcmd_name)
-            
+
             # Third level and beyond: special handling
             elif comp_cword >= 3 and len(words) >= 2:
                 cmd_name = words[1]
                 subcmd_name = words[2] if len(words) > 2 else ''
                 prev_word = words[comp_cword - 1] if comp_cword > 0 else ''
-                
+
                 # Special command handling
                 if cmd_name in ['gather', 'display'] and subcmd_name == 'scene':
                     completions = ['list', 'run']
@@ -1537,9 +1539,9 @@ class ObdiagCompleteCommand(BaseCommand):
         except Exception:
             # Return empty list on error
             pass
-        
+
         return completions
-    
+
     def _get_option_completions(self, prev_word):
         """Get option completion suggestions"""
         if prev_word == '--since':
@@ -1547,5 +1549,4 @@ class ObdiagCompleteCommand(BaseCommand):
         elif prev_word == '--scope':
             return ['observer', 'election', 'rootservice', 'all']
         else:
-            return ['--from', '--to', '--since', '--scope', '--grep', 
-                   '--store_dir', '-c', '--config', '--help']
+            return ['--from', '--to', '--since', '--scope', '--grep', '--store_dir', '-c', '--config', '--help']

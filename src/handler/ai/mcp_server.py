@@ -30,6 +30,7 @@ import yaml
 # Import handler invoker for direct handler calls
 try:
     from src.handler.ai.handler_invoker import HandlerInvoker
+
     HANDLER_INVOKER_AVAILABLE = True
 except ImportError:
     HANDLER_INVOKER_AVAILABLE = False
@@ -62,16 +63,12 @@ class MCPServer:
         self.use_direct_invocation = use_direct_invocation and HANDLER_INVOKER_AVAILABLE
         self.tools = self._register_tools()
         self.initialized = False
-        
+
         # Initialize handler invoker if available and enabled
         self.handler_invoker = None
         if self.use_direct_invocation:
             try:
-                self.handler_invoker = HandlerInvoker(
-                    config_path=self.config_path,
-                    stdio=self.stdio,
-                    context=self.context
-                )
+                self.handler_invoker = HandlerInvoker(config_path=self.config_path, stdio=self.stdio, context=self.context)
                 if self.stdio:
                     self.stdio.verbose("Handler invoker initialized - using direct handler calls")
             except Exception as e:
@@ -236,35 +233,31 @@ class MCPServer:
             output += "\n" + result.get("stderr", "")
 
         return {"content": [{"type": "text", "text": output}], "isError": not result.get("success", False)}
-    
+
     def _execute_handler_directly(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute handler directly without subprocess.
-        
+
         This is the preferred method as it:
         1. Has better performance (no subprocess overhead)
         2. Provides better error handling
         3. Allows access to structured result data
         4. Maintains unified codebase
-        
+
         Args:
             tool_name: Name of the tool to execute
             arguments: Dictionary of argument name-value pairs
-            
+
         Returns:
             Dictionary containing execution result
         """
         try:
             if self.stdio:
                 self.stdio.verbose("Executing handler directly: {0} with args: {1}".format(tool_name, arguments))
-            
+
             # Invoke handler directly
-            result = self.handler_invoker.invoke(
-                tool_name=tool_name,
-                arguments=arguments,
-                capture_output=True
-            )
-            
+            result = self.handler_invoker.invoke(tool_name=tool_name, arguments=arguments, capture_output=True)
+
             return {
                 "success": result.get("success", False),
                 "stdout": result.get("stdout", ""),
@@ -272,12 +265,12 @@ class MCPServer:
                 "return_code": result.get("return_code", -1),
                 "data": result.get("data"),  # Structured data from ObdiagResult
             }
-            
+
         except Exception as e:
             error_msg = str(e)
             if self.stdio:
                 self.stdio.error(f"Direct handler invocation failed: {error_msg}")
-            
+
             return {
                 "success": False,
                 "stdout": "",

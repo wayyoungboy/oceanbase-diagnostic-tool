@@ -229,7 +229,7 @@ class AnalyzeSQLHandler(BaseHandler):
                     FileUtil.write_append(self.local_store_path, html_result)
                     if not (self.stdio and self.stdio.silent):
                         self.__print_result()
-            
+
             # Return structured JSON data in silent mode, file path otherwise
             if self.stdio and self.stdio.silent:
                 # Convert results to structured format for JSON output

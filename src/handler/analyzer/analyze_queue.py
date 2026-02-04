@@ -195,34 +195,36 @@ class AnalyzeQueueHandler(BaseHandler):
             self._log_verbose(str(analyze_tuples))
             table_data = []
             headers = ['IP', 'Tenant Name', 'From_Time', 'To_Time', 'Is Queue', 'Queue Limit', 'Over Queue Limit Count', 'Max Queue']
-            
+
             # Prepare structured data for JSON output (when silent mode)
             structured_data = []
-            
+
             for ip, info in analyze_tuples:
                 row = [ip, info['tenant_name'], info['from_datetime_timestamp'], info['to_datetime_timestamp'], info['is_queue'], info['queue_limit'], info['over_queue_limit'], info['max_queue']]
                 table_data.append(row)
-                
+
                 # Build structured data for JSON output
                 if self.stdio and self.stdio.silent:
-                    structured_data.append({
-                        "ip": ip,
-                        "tenant_name": info.get('tenant_name'),
-                        "from_time": info.get('from_datetime_timestamp'),
-                        "to_time": info.get('to_datetime_timestamp'),
-                        "is_queue": info.get('is_queue'),
-                        "queue_limit": info.get('queue_limit'),
-                        "over_queue_limit": info.get('over_queue_limit'),
-                        "max_queue": info.get('max_queue')
-                    })
-            
+                    structured_data.append(
+                        {
+                            "ip": ip,
+                            "tenant_name": info.get('tenant_name'),
+                            "from_time": info.get('from_datetime_timestamp'),
+                            "to_time": info.get('to_datetime_timestamp'),
+                            "is_queue": info.get('is_queue'),
+                            "queue_limit": info.get('queue_limit'),
+                            "over_queue_limit": info.get('over_queue_limit'),
+                            "max_queue": info.get('max_queue'),
+                        }
+                    )
+
             queue_result = tabulate(table_data, headers=headers, tablefmt="pretty")
             self._log_info("\nQueue Result:")
             self._log_info(queue_result)
             FileUtil.write_append(os.path.join(local_store_parent_dir, "result_details.txt"), str(queue_result))
             last_info = f"\nFor more details, please run cmd \033[32m' cat {os.path.join(local_store_parent_dir, 'result_details.txt')} '\033[0m\n"
             self._log_info(last_info)
-            
+
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "store_dir": local_store_parent_dir})

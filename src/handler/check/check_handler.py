@@ -372,7 +372,7 @@ class CheckHandler(BaseHandler):
                     except Exception as e:
                         failed_tasks.append(task_name)
                         self._log_error(f"Task {task_name} failed with exception: {e}")
-                    
+
                     # Update progress bar
                     completed_count += 1
                     if self.stdio:

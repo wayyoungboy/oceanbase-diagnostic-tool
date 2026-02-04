@@ -103,7 +103,7 @@ class GatherSceneHandler(BaseHandler):
                 self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.gather_pack_dir = os.path.abspath(store_dir_option)
-        
+
         # Use config work_path if available, otherwise use parameter or default
         # tasks_base_path is automatically derived from work_path + "tasks"
         if hasattr(self, 'config') and hasattr(self.config, 'gather_work_path'):

@@ -228,10 +228,10 @@ class ObdiagHome(object):
     def _require_config(self, config):
         """
         Check if config exists, return error result if not.
-        
+
         Args:
             config: ConfigManager instance to check
-            
+
         Returns:
             ObdiagResult with INPUT_ERROR_CODE if config is None, None otherwise
         """
@@ -475,6 +475,7 @@ class ObdiagHome(object):
         self.set_offline_context('gather_scenes_list', 'gather')
         # Use config work_path if available, derive tasks path automatically
         import os
+
         work_path = None
         if hasattr(self, 'inner_config_manager') and self.inner_config_manager:
             work_path = self.inner_config_manager.config.get("gather", {}).get("work_path")

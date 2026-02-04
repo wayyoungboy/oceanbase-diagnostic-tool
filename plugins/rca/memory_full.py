@@ -139,18 +139,13 @@ class MemoryFullScene(RcaScene):
                     # Check for common memory-related error patterns
                     if self._check_start_port_in_log():
                         self.record.add_record("Found memory-related error patterns in logs.")
-                        self.record.add_suggest("Memory full issue detected from logs. Please check: "
-                                              "1) Tenant memory configuration and usage; "
-                                              "2) Memstore usage and freeze triggers; "
-                                              "3) Large transactions or queries consuming excessive memory.")
+                        self.record.add_suggest("Memory full issue detected from logs. Please check: " "1) Tenant memory configuration and usage; " "2) Memstore usage and freeze triggers; " "3) Large transactions or queries consuming excessive memory.")
                     else:
                         self.record.add_record("No obvious memory-related error patterns found in logs.")
-                        self.record.add_suggest("No clear memory errors found in logs. "
-                                              "If memory issues persist, please provide logs and cluster configuration for further analysis.")
+                        self.record.add_suggest("No clear memory errors found in logs. " "If memory issues persist, please provide logs and cluster configuration for further analysis.")
                 else:
                     self.record.add_record("No logs available for analysis.")
-                    self.record.add_suggest("Unable to analyze memory_full scene: no database connection and no logs available. "
-                                          "Please ensure logs are collected or provide database connection information.")
+                    self.record.add_suggest("Unable to analyze memory_full scene: no database connection and no logs available. " "Please ensure logs are collected or provide database connection information.")
 
         except Exception as e:
             raise RCAExecuteException("MemoryFullScene execute error: {0}".format(e))

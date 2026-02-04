@@ -166,15 +166,12 @@ class ConfigCheckHandler(BaseHandler):
         # Check each node in parallel using ThreadPoolExecutor for I/O-intensive SSH operations
         node_results = []
         lock = threading.Lock()  # Still needed for thread-safe access to shared data structures
-        
+
         # Use ThreadPoolExecutor for better thread pool management
         max_workers = min(len(nodes), 10)  # Limit concurrent SSH connections
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_node = {
-                executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "observer", node_results, lock, results): node
-                for idx, node in enumerate(nodes)
-            }
-            
+            future_to_node = {executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "observer", node_results, lock, results): node for idx, node in enumerate(nodes)}
+
             # Wait for all tasks to complete
             for future in as_completed(future_to_node):
                 try:
@@ -213,15 +210,12 @@ class ConfigCheckHandler(BaseHandler):
         # Check each node in parallel using ThreadPoolExecutor for I/O-intensive SSH operations
         node_results = []
         lock = threading.Lock()  # Still needed for thread-safe access to shared data structures
-        
+
         # Use ThreadPoolExecutor for better thread pool management
         max_workers = min(len(nodes), 10)  # Limit concurrent SSH connections
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_node = {
-                executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "obproxy", node_results, lock, results): node
-                for idx, node in enumerate(nodes)
-            }
-            
+            future_to_node = {executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "obproxy", node_results, lock, results): node for idx, node in enumerate(nodes)}
+
             # Wait for all tasks to complete
             for future in as_completed(future_to_node):
                 try:

@@ -176,17 +176,17 @@ EDIT_LEVEL, now(),default_value,isdefault from GV$OB_PARAMETERS where isdefault=
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
             file_name = f'{self.export_report_path}/parameter_default_{date_format}.table'
             fp = open(file_name, 'a+', encoding="utf8")
-            
+
             # Prepare structured data for JSON output (when silent mode)
             structured_data = []
-            
+
             for row in parameter_info:
                 if row[5] is None:
                     tenant_id = 'None'
                 else:
                     tenant_id = row[5]
                 report_default_tb.add_row([row[1], row[2], row[3], row[4], tenant_id, row[6], row[11], row[7]])
-                
+
                 # Build structured data for JSON output
                 if self.stdio and self.stdio.silent:
                     # Safely convert tenant_id
@@ -196,22 +196,24 @@ EDIT_LEVEL, now(),default_value,isdefault from GV$OB_PARAMETERS where isdefault=
                             tenant_id_value = int(tenant_id)
                         except (ValueError, TypeError):
                             tenant_id_value = tenant_id
-                    
-                    structured_data.append({
-                        "ip": str(row[1]) if row[1] else None,
-                        "port": int(row[2]) if row[2] else None,
-                        "zone": str(row[3]) if row[3] else None,
-                        "cluster": str(row[4]) if row[4] else None,
-                        "tenant_id": tenant_id_value,
-                        "name": str(row[6]) if row[6] else None,
-                        "default_value": str(row[11]) if row[11] else None,
-                        "current_value": str(row[7]) if row[7] else None
-                    })
-            
+
+                    structured_data.append(
+                        {
+                            "ip": str(row[1]) if row[1] else None,
+                            "port": int(row[2]) if row[2] else None,
+                            "zone": str(row[3]) if row[3] else None,
+                            "cluster": str(row[4]) if row[4] else None,
+                            "tenant_id": tenant_id_value,
+                            "name": str(row[6]) if row[6] else None,
+                            "default_value": str(row[11]) if row[11] else None,
+                            "current_value": str(row[7]) if row[7] else None,
+                        }
+                    )
+
             fp.write(report_default_tb.get_string() + "\n")
             self._log_info(report_default_tb.get_string())
             self._log_info("Analyze parameter default finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
-            
+
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name})
@@ -255,10 +257,10 @@ order by 5,2,3,4,7'''
                 file_name = f'{self.export_report_path}/parameter_default_{date_format}.table'
                 fp = open(file_name, 'a+', encoding="utf8")
                 is_empty = True
-                
+
                 # Prepare structured data for JSON output (when silent mode)
                 structured_data = []
-                
+
                 for key in db_parameter_dict:
                     if key in file_parameter_dict and db_parameter_dict[key] != file_parameter_dict[key]:
                         col_list = key.split('-')
@@ -266,7 +268,7 @@ order by 5,2,3,4,7'''
                         port = col_list[1] if len(col_list) > 1 else col_list[0]
                         report_default_tb.add_row([col_list[0], port, col_list[2], col_list[3], col_list[4], col_list[5], file_parameter_dict[key], db_parameter_dict[key]])
                         is_empty = False
-                        
+
                         # Build structured data for JSON output
                         if self.stdio and self.stdio.silent:
                             tenant_id_raw = col_list[4] if len(col_list) > 4 else None
@@ -277,23 +279,25 @@ order by 5,2,3,4,7'''
                                     tenant_id_value = int(tenant_id_raw)
                                 except (ValueError, TypeError):
                                     tenant_id_value = tenant_id_raw
-                            
-                            structured_data.append({
-                                "ip": col_list[0] if len(col_list) > 0 else None,
-                                "port": int(port) if port and port.isdigit() else None,
-                                "zone": col_list[2] if len(col_list) > 2 else None,
-                                "cluster": col_list[3] if len(col_list) > 3 else None,
-                                "tenant_id": tenant_id_value,
-                                "name": col_list[5] if len(col_list) > 5 else None,
-                                "default_value": file_parameter_dict[key],
-                                "current_value": db_parameter_dict[key]
-                            })
-                
+
+                            structured_data.append(
+                                {
+                                    "ip": col_list[0] if len(col_list) > 0 else None,
+                                    "port": int(port) if port and port.isdigit() else None,
+                                    "zone": col_list[2] if len(col_list) > 2 else None,
+                                    "cluster": col_list[3] if len(col_list) > 3 else None,
+                                    "tenant_id": tenant_id_value,
+                                    "name": col_list[5] if len(col_list) > 5 else None,
+                                    "default_value": file_parameter_dict[key],
+                                    "current_value": db_parameter_dict[key],
+                                }
+                            )
+
                 fp.write(report_default_tb.get_string() + "\n")
                 if not is_empty:
                     self._log_info(report_default_tb.get_string())
                     self._log_info("Analyze parameter default finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
-                    
+
                     # Return structured JSON data in silent mode, table string otherwise
                     if self.stdio and self.stdio.silent:
                         return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name})
@@ -376,10 +380,10 @@ order by 5,2,3,4,7'''
         fp = open(file_name, 'a+', encoding="utf8")
         is_empty = True
         report_diff_tbs = []
-        
+
         # Prepare structured data for JSON output (when silent mode)
         structured_data = []
-        
+
         for tenant, value_list in diff_parameter_dict.items():
             if len(value_list) > 0:
                 report_diff_tb = PrettyTable(["name", "diff"])
@@ -388,39 +392,33 @@ order by 5,2,3,4,7'''
                     report_diff_tb.title = 'SCOPE:' + tenant
                 else:
                     report_diff_tb.title = 'SCOPE:TENANT-' + tenant
-                
+
                 # Build structured data for JSON output
-                tenant_data = {
-                    "scope": tenant,
-                    "parameters": []
-                }
-                
+                tenant_data = {"scope": tenant, "parameters": []}
+
                 for value_dict in value_list:
                     value_str_list = []
                     for value in value_dict['value_list']:
                         value_str = json.dumps(value)
                         value_str_list.append(value_str)
                     report_diff_tb.add_row([value_dict['name'], '\n'.join(value_str_list)])
-                    
+
                     # Add to structured data
                     if self.stdio and self.stdio.silent:
-                        tenant_data["parameters"].append({
-                            "name": value_dict['name'],
-                            "diff": value_dict['value_list']  # Already a list of dicts with observer and value
-                        })
-                
+                        tenant_data["parameters"].append({"name": value_dict['name'], "diff": value_dict['value_list']})  # Already a list of dicts with observer and value
+
                 fp.write(report_diff_tb.get_string() + "\n")
                 self._log_info(report_diff_tb.get_string())
                 is_empty = False
                 report_diff_tbs.append(report_diff_tb.get_string())
-                
+
                 if self.stdio and self.stdio.silent and tenant_data["parameters"]:
                     structured_data.append(tenant_data)
-        
+
         fp.close()
         if not is_empty:
             self._log_info("Analyze parameter diff finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
-            
+
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "store_dir": file_name})

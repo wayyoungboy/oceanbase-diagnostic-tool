@@ -108,13 +108,13 @@ class RCAHandler(BaseHandler):
         if store_dir is None:
             # Default to current directory if not specified
             store_dir = "./"
-        
+
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_rca_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
         store_dir = os.path.join(store_dir, target_dir)
         if not os.path.exists(store_dir):
             os.makedirs(store_dir, exist_ok=True)
-        
+
         self._log_verbose(f"RCAHandler.init store dir: {store_dir}")
         report = Result(self.context)
         report.set_save_path(store_dir)
@@ -172,7 +172,7 @@ class RCAHandler(BaseHandler):
         self.tasks = None
         self.context.set_variable("input_parameters", self._get_option("env"))
         self.context.set_variable("env", self._get_option("env"))
-        
+
         # store_dir is already set above, just update context variable
         self.context.set_variable("store_dir", self.store_dir)
 

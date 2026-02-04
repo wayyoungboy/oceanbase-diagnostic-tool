@@ -161,14 +161,14 @@ class ConcurrentExecutor(object):
         rets = []
         if not self.futures:
             return rets
-        
+
         # Use ThreadPoolExecutor instead of multiprocessing.pool.ThreadPool
         # ThreadPoolExecutor is more suitable for I/O-intensive tasks like SSH
         max_workers = self.workers if self.workers else min(len(self.futures), 10)
-        
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_task = {executor.submit(ConcurrentExecutor.execute, future): future for future in self.futures}
-            
+
             for future in as_completed(future_to_task):
                 try:
                     result = future.result()
@@ -178,7 +178,7 @@ class ConcurrentExecutor(object):
                     task_future = future_to_task[future]
                     if task_future.stdio:
                         task_future.stdio.error(f"ConcurrentExecutor task failed: {e}")
-        
+
         self.futures = []
         return rets
 
