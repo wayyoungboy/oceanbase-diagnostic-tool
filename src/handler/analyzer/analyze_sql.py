@@ -54,7 +54,7 @@ class AnalyzeSQLHandler(BaseHandler):
 
         # Initialize config
         if self.config:
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             if self.context.inner_config:
                 basic_config = self.context.inner_config['obdiag']['basic']
@@ -227,8 +227,19 @@ class AnalyzeSQLHandler(BaseHandler):
                 html_result = self.__generate_html_result(all_tenant_results, data)
                 if html_result:
                     FileUtil.write_append(self.local_store_path, html_result)
-                    self.__print_result()
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_path": self.local_store_path})
+                    if not (self.stdio and self.stdio.silent):
+                        self.__print_result()
+            
+            # Return structured JSON data in silent mode, file path otherwise
+            if self.stdio and self.stdio.silent:
+                # Convert results to structured format for JSON output
+                structured_results = {}
+                for tenant_name, results in all_tenant_results.items():
+                    tenant_key = tenant_name[0] if isinstance(tenant_name, tuple) else tenant_name
+                    structured_results[tenant_key] = results
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_results, "store_path": self.local_store_path})
+            else:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_path": self.local_store_path})
 
         except Exception as e:
             return self._handle_error(e)

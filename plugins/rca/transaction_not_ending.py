@@ -58,6 +58,10 @@ class TransactionNotEndingScene(RcaScene):
 
     # The problem of incomplete transactions can be divided into three categories, depending on whether the transaction is in the commit phase.
     def execute(self):
+        # Deprecation warning: This scene is deprecated, use suspend_transaction instead
+        self.stdio.warn("[DEPRECATED] The 'transaction_not_ending' scene is deprecated and will be removed in a future version.")
+        self.stdio.warn("Please use 'suspend_transaction' scene instead: obdiag rca run --scene=suspend_transaction --env tx_id=xxx or --env tenant_name=xxx")
+        self.record.add_record("[DEPRECATED] This scene is deprecated. Use 'suspend_transaction' scene instead.")
         try:
             syslog_level_data = self.ob_connector.execute_sql_return_cursor_dictionary('SHOW PARAMETERS like "syslog_level"').fetchall()
             self.record.add_record("syslog_level data is {0}".format(syslog_level_data[0].get("value") or None))

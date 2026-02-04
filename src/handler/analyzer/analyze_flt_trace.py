@@ -321,7 +321,8 @@ class AnalyzeFltTraceHandler(BaseHandler):
             content = f.read()
             try:
                 data = json.loads(content)
-            except Exception:
+            except Exception as e:
+                self._log_error("Failed to parse JSON content from file {0}: {1}".format(file, e))
                 self._log_error(traceback.format_exc())
                 sys.exit()
             if not isinstance(data, list):
@@ -354,14 +355,18 @@ class AnalyzeFltTraceHandler(BaseHandler):
                         return json.loads(data_start + new_line + data_end)
                     else:
                         pass
-            except:
+            except Exception as e:
+                # Try to recover malformed JSON by fixing common issues
+                self._log_verbose("Failed to parse JSON line, attempting recovery: {0}".format(e))
                 if line.endswith(']}\n'):
                     new_line_data = line[idx:-3] + "...\"}]}"
                 else:
                     new_line_data = line[idx:-1] + '}'
                 try:
                     return json.loads(data_start + new_line_data + data_end)
-                except:
+                except Exception as e2:
+                    # Last resort: try replacing tabs
+                    self._log_verbose("JSON recovery attempt 1 failed, trying tab replacement: {0}".format(e2))
                     new_line_data = line.replace('\t', '\\t')[idx:-5] + '..."}]}'
                     return json.loads(data_start + new_line_data + data_end)
 
@@ -561,8 +566,9 @@ class AnalyzeFltTraceHandler(BaseHandler):
                             try:
                                 dt = datetime.strptime(match.group(), '%Y-%m-%d %H:%M:%S')
                                 timestamps.append(dt)
-                            except:
-                                pass
+                            except Exception as e:
+                                # Invalid datetime format, skip this match
+                                self._log_verbose("Failed to parse datetime from line: {0}".format(e))
                         # Try pattern 2 & 3: timestamp in microseconds
                         for pattern in timestamp_patterns[1:]:
                             match = pattern.search(line)
@@ -572,8 +578,9 @@ class AnalyzeFltTraceHandler(BaseHandler):
                                     # Convert microseconds to datetime (assuming microseconds since epoch)
                                     dt = datetime.fromtimestamp(ts_us / 1000000)
                                     timestamps.append(dt)
-                                except:
-                                    pass
+                                except Exception as e:
+                                    # Invalid timestamp format, skip this match
+                                    self._log_verbose("Failed to parse timestamp from line: {0}".format(e))
             except Exception as e:
                 self._log_verbose(f"Failed to read file {file_path}: {str(e)}")
 

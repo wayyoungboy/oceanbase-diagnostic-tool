@@ -87,7 +87,9 @@ class DisplaySceneHandler(BaseHandler):
                     return_data = f"{return_data}\n{data}"
                 elif isinstance(data, ObdiagResult):
                     return data
-            # todo display no code task
+            # Execute code tasks (Python-based tasks)
+            # Note: code_tasks are executed after yaml_tasks, and their results are not included in return_data
+            # This is intentional - code tasks typically perform actions (like gathering data) rather than returning display data
             for task in self.code_tasks:
                 self.__execute_code_task_one(task)
             return return_data

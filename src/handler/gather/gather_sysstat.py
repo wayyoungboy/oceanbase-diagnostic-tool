@@ -54,7 +54,7 @@ class GatherOsInfoHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -89,7 +89,7 @@ class GatherOsInfoHandler(BaseHandler):
             if self.is_scene:
                 pack_dir_this_command = self.local_stored_path
             else:
-                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             gather_tuples = []
 
@@ -175,8 +175,8 @@ class GatherOsInfoHandler(BaseHandler):
             dmesg_cmd = f"dmesg --ctime > {gather_path}/dmesg.human.current"
             self._log_verbose(f"gather dmesg current info, run cmd = [{dmesg_cmd}]")
             ssh_client.exec_cmd(dmesg_cmd)
-        except:
-            self._log_error(f"Failed to gather dmesg current info on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather dmesg current info on server {ssh_client.get_name()}: {e}")
 
     def __gather_dmesg_boot_info(self, ssh_client, dir_path):
         try:
@@ -188,8 +188,8 @@ class GatherOsInfoHandler(BaseHandler):
                 ssh_client.exec_cmd(dmesg_cmd)
             else:
                 self._log_warn(f"the file /var/log/dmesg on server {ssh_client.get_name()} not found")
-        except:
-            self._log_error(f"Failed to gather the /var/log/dmesg on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather the /var/log/dmesg on server {ssh_client.get_name()}: {e}")
 
     def __tsar_exit(self, ssh_client):
         try:
@@ -197,56 +197,56 @@ class GatherOsInfoHandler(BaseHandler):
             exit = ssh_client.exec_cmd(cmd)
             if exit:
                 return True
-        except:
-            self._log_warn("tsar not found")
+        except Exception as e:
+            self._log_warn("tsar not found: {0}".format(e))
 
     def __gather_cpu_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar --cpu -i 1 > {gather_path}/one_day_cpu_data.txt"
             self._log_verbose(f"gather cpu info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather cpu info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather cpu info use tsar on server {ssh_client.get_name()}: {e}")
 
     def __gather_mem_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar --mem -i 1 > {gather_path}/one_day_mem_data.txt"
             self._log_verbose(f"gather memory info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather memory info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather memory info use tsar on server {ssh_client.get_name()}: {e}")
 
     def __gather_swap_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar  --swap --load > {gather_path}/tsar_swap_data.txt"
             self._log_verbose(f"gather swap info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather swap info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather swap info use tsar on server {ssh_client.get_name()}: {e}")
 
     def __gather_io_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar --io > {gather_path}/tsar_io_data.txt"
             self._log_verbose(f"gather io info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather io info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather io info use tsar on server {ssh_client.get_name()}: {e}")
 
     def __gather_traffic_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar  --traffic > {gather_path}/tsar_traffic_data.txt"
             self._log_verbose(f"gather traffic info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather traffic info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather traffic info use tsar on server {ssh_client.get_name()}: {e}")
 
     def __gather_tcp_udp_info(self, ssh_client, gather_path):
         try:
             tsar_cmd = f"tsar  --tcp --udp -d 1 > {gather_path}/tsar_tcp_udp_data.txt"
             self._log_verbose(f"gather tcp and udp info on server {ssh_client.get_name()}, run cmd = [{tsar_cmd}]")
             ssh_client.exec_cmd(tsar_cmd)
-        except:
-            self._log_error(f"Failed to gather tcp and udp info use tsar on server {ssh_client.get_name()}")
+        except Exception as e:
+            self._log_error(f"Failed to gather tcp and udp info use tsar on server {ssh_client.get_name()}: {e}")
 
     @staticmethod
     def __get_overall_summary(node_summary_tuple):
@@ -260,7 +260,8 @@ class GatherOsInfoHandler(BaseHandler):
             pack_path = tup[5]
             try:
                 format_file_size = FileUtil.size_format(num=file_size, output_str=True)
-            except:
+            except Exception as e:
+                self._log_verbose("Failed to format file size {0}: {1}".format(file_size, e))
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
         return "\nGather Sysstat Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)

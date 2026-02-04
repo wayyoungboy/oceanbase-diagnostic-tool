@@ -144,20 +144,22 @@ remove_folders:
 # Initialize development environment
 init: check_python backup_obdiag remove_folders copy_files install_requirements download_obstack
 	@echo "Setting up environment..."
-	@export PYTHONPATH=$$PYTHONPATH:$(PROJECT_PATH)
 	@source $(WORK_DIR)/rpm/init_obdiag_cmd.sh 2>/dev/null || true
 	@echo ""
 	@echo "=============================================="
 	@echo "Initialization completed successfully!"
 	@echo ""
-	@echo "Please run the following commands manually:"
-	@echo "  export PYTHONPATH=\$$PYTHONPATH:$(PROJECT_PATH)"
-	@echo "  alias obdiag='python3 $(PROJECT_PATH)/src/main.py'"
+	@echo "Note: Project is installed via 'pip install -e .', so PYTHONPATH is not needed."
 	@echo ""
-	@echo "Or add them to your ~/.bashrc:"
-	@echo "  echo 'export PYTHONPATH=\$$PYTHONPATH:$(PROJECT_PATH)' >> ~/.bashrc"
+	@echo "You can run obdiag directly:"
+	@echo "  python3 $(PROJECT_PATH)/src/main.py"
+	@echo ""
+	@echo "Or create an alias in your ~/.bashrc:"
 	@echo "  echo \"alias obdiag='python3 $(PROJECT_PATH)/src/main.py'\" >> ~/.bashrc"
 	@echo "  source ~/.bashrc"
+	@echo ""
+	@echo "If you prefer not to install the project, you can set PYTHONPATH:"
+	@echo "  export PYTHONPATH=\$$PYTHONPATH:$(PROJECT_PATH)"
 	@echo "=============================================="
 
 # Format code with black
@@ -170,10 +172,12 @@ format:
 # Additional useful targets
 
 # Run obdiag directly (for development)
+# Note: PYTHONPATH is set as fallback, but not needed if project is installed via pip install -e .
 run:
 	@PYTHONPATH=$(PROJECT_PATH):$$PYTHONPATH python3 $(PROJECT_PATH)/src/main.py $(ARGS)
 
 # Run tests (placeholder)
+# Note: PYTHONPATH is set as fallback, but not needed if project is installed via pip install -e .
 test:
 	@echo "Running tests..."
 	@PYTHONPATH=$(PROJECT_PATH):$$PYTHONPATH python3 -m pytest tests/ -v 2>/dev/null || echo "No tests found or pytest not installed"

@@ -146,7 +146,7 @@ class GatherAshReportHandler(BaseHandler):
 
     def __init_report_path(self):
         try:
-            self.report_path = os.path.join(self.gather_pack_dir, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+            self.report_path = os.path.join(self.gather_pack_dir, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {self.report_path} as pack dir.")
             DirectoryUtil.mkdir(path=self.report_path, stdio=self.stdio)
         except Exception as e:

@@ -246,7 +246,7 @@ class TaskBase:
             Example: {
                 "name": "task_name",
                 "info": "Task description",
-                "issue_link": "https://github.com/oceanbase/obdiag/issues/xxx",
+                "issue_link": "https://github.com/oceanbase/obdiag/issues/<issue_number>",  # Replace <issue_number> with actual issue number, or omit if not applicable
                 "supported_os": ["linux"]  # Linux only task
             }
         """

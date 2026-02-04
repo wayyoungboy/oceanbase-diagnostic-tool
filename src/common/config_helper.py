@@ -398,8 +398,11 @@ class ConfigHelper(object):
         try:
             data = YamlUtils.read_yaml_data(path)
             return data
-        except:
-            pass
+        except Exception as e:
+            # Configuration read failure is non-critical, return None
+            if hasattr(self, 'stdio') and self.stdio:
+                self.stdio.verbose("Failed to read old configuration from {0}: {1}".format(path, e))
+            return None
 
     def save_old_configuration(self, config):
         backup_config_dir = os.path.expanduser(self.inner_config["obdiag"]["basic"]["config_backup_dir"])

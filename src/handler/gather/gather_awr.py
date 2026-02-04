@@ -112,7 +112,7 @@ class GatherAwrHandler(BaseHandler):
 
         try:
             # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
-            pack_dir_this_command = os.path.join(self.gather_pack_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
+            pack_dir_this_command = os.path.join(self.gather_pack_dir, "obdiag_gather_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)
             gather_tuples = []

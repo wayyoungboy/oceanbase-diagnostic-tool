@@ -28,7 +28,7 @@ from paramiko import AuthenticationException, SFTPClient
 from paramiko.client import SSHClient, AutoAddPolicy
 from paramiko.ssh_exception import NoValidConnectionsError, SSHException
 from multiprocessing import Queue
-from multiprocessing.pool import ThreadPool
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.common.tool import COMMAND_ENV, DirectoryUtil, FileUtil, Timeout
 from src.common.stdio import SafeStdio
 from src.common.err import EC_SSH_CONNECT
@@ -154,14 +154,31 @@ class ConcurrentExecutor(object):
         return future
 
     def submit(self):
+        """
+        Submit all tasks using ThreadPoolExecutor for I/O-intensive SSH operations.
+        Note: This maintains backward compatibility with the original interface.
+        """
         rets = []
-        pool = ThreadPool(processes=self.workers)
-        try:
-            results = pool.map(ConcurrentExecutor.execute, tuple(self.futures))
-            for r in results:
-                rets.append(r)
-        finally:
-            pool.close()
+        if not self.futures:
+            return rets
+        
+        # Use ThreadPoolExecutor instead of multiprocessing.pool.ThreadPool
+        # ThreadPoolExecutor is more suitable for I/O-intensive tasks like SSH
+        max_workers = self.workers if self.workers else min(len(self.futures), 10)
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_task = {executor.submit(ConcurrentExecutor.execute, future): future for future in self.futures}
+            
+            for future in as_completed(future_to_task):
+                try:
+                    result = future.result()
+                    rets.append(result)
+                except Exception as e:
+                    # Log error but continue processing other tasks
+                    task_future = future_to_task[future]
+                    if task_future.stdio:
+                        task_future.stdio.error(f"ConcurrentExecutor task failed: {e}")
+        
         self.futures = []
         return rets
 

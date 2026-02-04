@@ -80,7 +80,7 @@ class AnalyzeQueueHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -175,7 +175,7 @@ class AnalyzeQueueHandler(BaseHandler):
 
         try:
 
-            local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
+            local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
             self._log_verbose(f"Use {local_store_parent_dir} as pack dir.")
             analyze_tuples = []
 
@@ -195,16 +195,39 @@ class AnalyzeQueueHandler(BaseHandler):
             self._log_verbose(str(analyze_tuples))
             table_data = []
             headers = ['IP', 'Tenant Name', 'From_Time', 'To_Time', 'Is Queue', 'Queue Limit', 'Over Queue Limit Count', 'Max Queue']
+            
+            # Prepare structured data for JSON output (when silent mode)
+            structured_data = []
+            
             for ip, info in analyze_tuples:
                 row = [ip, info['tenant_name'], info['from_datetime_timestamp'], info['to_datetime_timestamp'], info['is_queue'], info['queue_limit'], info['over_queue_limit'], info['max_queue']]
                 table_data.append(row)
+                
+                # Build structured data for JSON output
+                if self.stdio and self.stdio.silent:
+                    structured_data.append({
+                        "ip": ip,
+                        "tenant_name": info.get('tenant_name'),
+                        "from_time": info.get('from_datetime_timestamp'),
+                        "to_time": info.get('to_datetime_timestamp'),
+                        "is_queue": info.get('is_queue'),
+                        "queue_limit": info.get('queue_limit'),
+                        "over_queue_limit": info.get('over_queue_limit'),
+                        "max_queue": info.get('max_queue')
+                    })
+            
             queue_result = tabulate(table_data, headers=headers, tablefmt="pretty")
             self._log_info("\nQueue Result:")
             self._log_info(queue_result)
             FileUtil.write_append(os.path.join(local_store_parent_dir, "result_details.txt"), str(queue_result))
             last_info = f"\nFor more details, please run cmd \033[32m' cat {os.path.join(local_store_parent_dir, 'result_details.txt')} '\033[0m\n"
             self._log_info(last_info)
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": queue_result})
+            
+            # Return structured JSON data in silent mode, table string otherwise
+            if self.stdio and self.stdio.silent:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "store_dir": local_store_parent_dir})
+            else:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": queue_result})
 
         except Exception as e:
             return self._handle_error(e)

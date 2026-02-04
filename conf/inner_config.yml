@@ -1,38 +1,76 @@
+# OceanBase Diagnostic Tool Internal Configuration
+# This file contains default configuration values for obdiag.
+# Values can be overridden via --inner_config command-line option.
+# Format: --inner_config section.key=value (e.g., --inner_config obdiag.logger.silent=true)
+
 obdiag:
   basic:
+    # Main configuration file path
     config_path: ~/.obdiag/config.yml
+    # Backup directory for configuration files
     config_backup_dir: ~/.obdiag/backup_conf
+    # Maximum number of files to keep (for cleanup)
     file_number_limit: 50
+    # Maximum total file size limit (supports: B, K, M, G, T)
     file_size_limit: 5G
+    # Disable RSA algorithms (0: enable, 1: disable)
     dis_rsa_algorithms: 0
+    # Strict host key checking (0: disable, 1: enable)
     strict_host_key_checking: 0
   logger:
+    # Log directory
     log_dir: ~/.obdiag/log
+    # Log filename
     log_filename: obdiag.log
+    # File handler log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     file_handler_log_level: DEBUG
+    # Overall log level
     log_level: INFO
+    # Logger mode
     mode: obdiag
+    # Stdout handler log level
     stdout_handler_log_level: INFO
-    error_stream: sys.stdout
+    # Error stream (sys.stdout or sys.stderr)
+    # Default changed to sys.stderr in version 3.0+ for better separation of stdout and stderr
+    error_stream: sys.stderr
+    # Silent mode (suppress all output except JSON results)
     silent: false
   ssh_client:
-    remote_client_sudo: 0
+    # Use sudo for remote commands (true/false)
+    remote_client_sudo: false
+    # Command execution timeout in seconds
     cmd_exec_timeout: 180
+
+# Analyze configuration
 analyze:
+  # Number of threads for parallel analysis
   thread_nums: 3
+
+# Check configuration
 check:
+  # Ignore version compatibility checks
   ignore_version: false
-  work_path: "~/.obdiag/check"
+  # Working directory for check tasks (contains package files and tasks/ subdirectory)
+  work_path: ~/.obdiag/check
+  # Maximum number of parallel workers for check tasks
   max_workers: 12
   report:
-    report_path: "./check_report/"
+    # Report export type (table, json, xml, yaml, html)
     export_type: table
-  tasks_base_path: "~/.obdiag/check/tasks/"
+
+# Gather configuration
 gather:
-  scenes_base_path: "~/.obdiag/gather/tasks"
+  # Working directory for gather scene definitions (contains tasks/ subdirectory)
+  work_path: ~/.obdiag/gather
+  # Number of threads for redact processing
   redact_processing_num: 3
+  # Number of threads for parallel gathering
   thread_nums: 3
   gather_log:
+    # Log search version (1 or 2)
     search_version: 2
+
+# RCA (Root Cause Analysis) configuration
 rca:
-  result_path: "./obdiag_rca/"
+  # Working directory for RCA scene definitions (Python files)
+  work_path: ~/.obdiag/rca

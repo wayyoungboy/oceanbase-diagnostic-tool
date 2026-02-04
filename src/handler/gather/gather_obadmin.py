@@ -66,7 +66,7 @@ class GatherObAdminHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -124,7 +124,7 @@ class GatherObAdminHandler(BaseHandler):
         self._validate_initialized()
 
         try:
-            pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+            pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             gather_tuples = []
 

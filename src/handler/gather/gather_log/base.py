@@ -121,8 +121,9 @@ class BaseGatherLogOnNode(ABC):
             if self.ssh_client:
                 try:
                     self.ssh_client.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # SSH connection cleanup failure is non-critical, log verbosely
+                    self.stdio.verbose("Failed to close SSH connection: {0}".format(e))
 
     def _build_tmp_dir_name(self, from_ts, to_ts) -> str:
         """Build temporary directory name"""

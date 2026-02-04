@@ -30,14 +30,16 @@ class GlobalCheckMeta:
     def get_value(self, key):
         try:
             return self._check_dict[key]
-        except:
-            print('get' + key + 'failed\r\n')
+        except Exception as e:
+            # Key not found or other error, log and return None
+            print('get {0} failed: {1}\r\n'.format(key, e))
 
     def rm_value(self, key):
         try:
             return self._check_dict.pop(key)
-        except:
-            print('delete' + key + 'failed\r\n')
+        except Exception as e:
+            # Key not found or other error, log and return None
+            print('delete {0} failed: {1}\r\n'.format(key, e))
 
 
 check_dict = GlobalCheckMeta()

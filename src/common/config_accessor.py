@@ -102,90 +102,139 @@ class ConfigAccessor:
     @property
     def check_max_workers(self) -> int:
         """Get check max workers (default: 12)"""
-        return ConfigValue(self.inner_config.get("check", {}).get("max_workers") if self.inner_config else None, default=12).get_int()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("check", {}).get("max_workers"), default=12).get_int()
 
     @property
     def check_work_path(self) -> str:
         """Get check work path (default: ~/.obdiag/check)"""
-        return ConfigValue(self.inner_config.get("check", {}).get("work_path") if self.inner_config else None, default="~/.obdiag/check").get_path()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("check", {}).get("work_path"), default="~/.obdiag/check").get_path()
 
     @property
     def check_report_path(self) -> str:
-        """Get check report path (default: ./check_report/)"""
-        return ConfigValue(self.inner_config.get("check", {}).get("report", {}).get("report_path") if self.inner_config else None, default="./check_report/").get_path()
+        """Get check report path (default: ./)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("check", {}).get("report", {}).get("report_path"), default="./").get_path()
 
     @property
     def check_report_type(self) -> str:
         """Get check report type (default: table)"""
-        return ConfigValue(self.inner_config.get("check", {}).get("report", {}).get("export_type") if self.inner_config else None, default="table").get()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("check", {}).get("report", {}).get("export_type"), default="table").get()
 
     @property
     def check_ignore_version(self) -> bool:
         """Get check ignore version flag (default: False)"""
-        return ConfigValue(self.inner_config.get("check", {}).get("ignore_version") if self.inner_config else None, default=False).get_bool()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("check", {}).get("ignore_version"), default=False).get_bool()
 
     @property
     def check_tasks_base_path(self) -> str:
-        """Get check tasks base path"""
-        return ConfigValue(self.inner_config.get("check", {}).get("tasks_base_path") if self.inner_config else None, default="~/.obdiag/check/tasks/").get_path()
+        """Get check tasks base path (derived from work_path)"""
+        # tasks_base_path is automatically derived from work_path + "tasks"
+        work_path = self.check_work_path
+        return os.path.join(work_path, "tasks")
 
     # ========== Gather Configuration ==========
 
     @property
     def gather_thread_nums(self) -> int:
         """Get gather thread numbers (default: 3)"""
-        return ConfigValue(self.inner_config.get("gather", {}).get("thread_nums") if self.inner_config else None, default=3).get_int()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("gather", {}).get("thread_nums"), default=3).get_int()
+
+    def _get_config_dict(self):
+        """
+        Get the underlying configuration dictionary from inner_config.
+        Handles both InnerConfigManager objects and plain dictionaries.
+        
+        Returns:
+            dict: Configuration dictionary, or empty dict if not available
+        """
+        if not self.inner_config:
+            return {}
+        # If inner_config is an InnerConfigManager, access via .config attribute
+        if hasattr(self.inner_config, 'config'):
+            return self.inner_config.config if isinstance(self.inner_config.config, dict) else {}
+        # If inner_config is already a dict, use it directly
+        if isinstance(self.inner_config, dict):
+            return self.inner_config
+        return {}
 
     @property
+    def gather_work_path(self) -> str:
+        """Get gather work path (base directory, tasks/ subdirectory will be used)"""
+        config_dict = self._get_config_dict()
+        work_path = config_dict.get("gather", {}).get("work_path")
+        return ConfigValue(work_path, default="~/.obdiag/gather").get_path()
+    
+    @property
     def gather_scenes_base_path(self) -> str:
-        """Get gather scenes base path"""
-        return ConfigValue(self.inner_config.get("gather", {}).get("scenes_base_path") if self.inner_config else None, default="~/.obdiag/gather/tasks").get_path()
+        """Get gather scenes base path (derived from work_path + tasks)"""
+        # Automatically derive tasks path from work_path
+        work_path = self.gather_work_path
+        return os.path.join(work_path, "tasks")
 
     @property
     def gather_file_number_limit(self) -> int:
-        """Get gather file number limit (default: 20)"""
-        return ConfigValue(self.inner_config.get("obdiag", {}).get("basic", {}).get("file_number_limit") if self.inner_config else None, default=20).get_int()
+        """Get gather file number limit (default: 50)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("obdiag", {}).get("basic", {}).get("file_number_limit"), default=50).get_int()
 
     @property
     def gather_file_size_limit(self) -> int:
-        """Get gather file size limit in bytes (default: 2GB)"""
-        return ConfigValue(self.inner_config.get("obdiag", {}).get("basic", {}).get("file_size_limit") if self.inner_config else None, default="2G").get_size()
+        """Get gather file size limit in bytes (default: 5GB)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("obdiag", {}).get("basic", {}).get("file_size_limit"), default="5G").get_size()
 
     @property
     def gather_redact_processing_num(self) -> int:
         """Get gather redact processing number (default: 3)"""
-        return ConfigValue(self.inner_config.get("gather", {}).get("redact_processing_num") if self.inner_config else None, default=3).get_int()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("gather", {}).get("redact_processing_num"), default=3).get_int()
 
     # ========== Analyze Configuration ==========
 
     @property
     def analyze_thread_nums(self) -> int:
         """Get analyze thread numbers (default: 3)"""
-        return ConfigValue(self.inner_config.get("analyze", {}).get("thread_nums") if self.inner_config else None, default=3).get_int()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("analyze", {}).get("thread_nums"), default=3).get_int()
 
     # ========== RCA Configuration ==========
 
     @property
+    def rca_work_path(self) -> str:
+        """Get RCA work path for scene definitions (default: ~/.obdiag/rca)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("rca", {}).get("work_path"), default="~/.obdiag/rca").get_path()
+
+    @property
     def rca_result_path(self) -> str:
-        """Get RCA result path (default: ./obdiag_rca/)"""
-        return ConfigValue(self.inner_config.get("rca", {}).get("result_path") if self.inner_config else None, default="./obdiag_rca/").get_path()
+        """Get RCA result path (default: ./)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("rca", {}).get("result_path"), default="./").get_path()
 
     # ========== Basic Configuration ==========
 
     @property
     def basic_config_path(self) -> str:
         """Get basic config path"""
-        return ConfigValue(self.inner_config.get("obdiag", {}).get("basic", {}).get("config_path") if self.inner_config else None, default="~/.obdiag/config.yml").get_path()
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("obdiag", {}).get("basic", {}).get("config_path"), default="~/.obdiag/config.yml").get_path()
 
     @property
     def basic_file_number_limit(self) -> int:
-        """Get basic file number limit"""
-        return ConfigValue(self.inner_config.get("obdiag", {}).get("basic", {}).get("file_number_limit") if self.inner_config else None, default=20).get_int()
+        """Get basic file number limit (default: 50)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("obdiag", {}).get("basic", {}).get("file_number_limit"), default=50).get_int()
 
     @property
     def basic_file_size_limit(self) -> int:
-        """Get basic file size limit in bytes"""
-        return ConfigValue(self.inner_config.get("obdiag", {}).get("basic", {}).get("file_size_limit") if self.inner_config else None, default="2G").get_size()
+        """Get basic file size limit in bytes (default: 5GB)"""
+        config_dict = self._get_config_dict()
+        return ConfigValue(config_dict.get("obdiag", {}).get("basic", {}).get("file_size_limit"), default="5G").get_size()
 
     # ========== AI Configuration ==========
 

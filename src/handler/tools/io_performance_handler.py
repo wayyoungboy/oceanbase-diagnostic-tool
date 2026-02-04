@@ -104,7 +104,10 @@ class IoPerformanceHandler(BaseHandler):
             if result and "tsar" in result:
                 return True
             return False
-        except Exception:
+        except Exception as e:
+            # tsar check failure is non-critical, log verbosely
+            if hasattr(ssh_client, 'stdio') and ssh_client.stdio:
+                ssh_client.stdio.verbose("Failed to check tsar installation: {0}".format(e))
             return False
 
     def _execute_tsar(self, ssh_client, disk_device, date=None, duration=25):

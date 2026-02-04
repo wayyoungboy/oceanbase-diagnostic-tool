@@ -27,6 +27,13 @@ from typing import Dict, List, Any, Optional
 
 import yaml
 
+# Import handler invoker for direct handler calls
+try:
+    from src.handler.ai.handler_invoker import HandlerInvoker
+    HANDLER_INVOKER_AVAILABLE = True
+except ImportError:
+    HANDLER_INVOKER_AVAILABLE = False
+
 
 class MCPServer:
     """Built-in MCP server for obdiag tools"""
@@ -48,12 +55,29 @@ class MCPServer:
         "tool_io_performance": "obdiag tool io_performance",
     }
 
-    def __init__(self, config_path: Optional[str] = None, stdio=None, context=None):
+    def __init__(self, config_path: Optional[str] = None, stdio=None, context=None, use_direct_invocation: bool = True):
         self.config_path = config_path or os.path.expanduser("~/.obdiag/config.yml")
         self.stdio = stdio
         self.context = context
+        self.use_direct_invocation = use_direct_invocation and HANDLER_INVOKER_AVAILABLE
         self.tools = self._register_tools()
         self.initialized = False
+        
+        # Initialize handler invoker if available and enabled
+        self.handler_invoker = None
+        if self.use_direct_invocation:
+            try:
+                self.handler_invoker = HandlerInvoker(
+                    config_path=self.config_path,
+                    stdio=self.stdio,
+                    context=self.context
+                )
+                if self.stdio:
+                    self.stdio.verbose("Handler invoker initialized - using direct handler calls")
+            except Exception as e:
+                if self.stdio:
+                    self.stdio.warn(f"Failed to initialize handler invoker, falling back to subprocess: {e}")
+                self.use_direct_invocation = False
 
     def _register_tools(self) -> List[Dict[str, Any]]:
         """Register available obdiag tools"""
@@ -201,14 +225,65 @@ class MCPServer:
         if tool_name == "generate_config":
             return self._generate_config(arguments)
 
-        # Execute obdiag command
-        result = self._execute_obdiag_command(tool_name, arguments)
+        # Use direct handler invocation if available, otherwise fall back to subprocess
+        if self.use_direct_invocation and self.handler_invoker:
+            result = self._execute_handler_directly(tool_name, arguments)
+        else:
+            result = self._execute_obdiag_command(tool_name, arguments)
 
         output = result.get("stdout", "")
         if result.get("stderr"):
             output += "\n" + result.get("stderr", "")
 
         return {"content": [{"type": "text", "text": output}], "isError": not result.get("success", False)}
+    
+    def _execute_handler_directly(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Execute handler directly without subprocess.
+        
+        This is the preferred method as it:
+        1. Has better performance (no subprocess overhead)
+        2. Provides better error handling
+        3. Allows access to structured result data
+        4. Maintains unified codebase
+        
+        Args:
+            tool_name: Name of the tool to execute
+            arguments: Dictionary of argument name-value pairs
+            
+        Returns:
+            Dictionary containing execution result
+        """
+        try:
+            if self.stdio:
+                self.stdio.verbose("Executing handler directly: {0} with args: {1}".format(tool_name, arguments))
+            
+            # Invoke handler directly
+            result = self.handler_invoker.invoke(
+                tool_name=tool_name,
+                arguments=arguments,
+                capture_output=True
+            )
+            
+            return {
+                "success": result.get("success", False),
+                "stdout": result.get("stdout", ""),
+                "stderr": result.get("stderr", ""),
+                "return_code": result.get("return_code", -1),
+                "data": result.get("data"),  # Structured data from ObdiagResult
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            if self.stdio:
+                self.stdio.error(f"Direct handler invocation failed: {error_msg}")
+            
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": f"Handler invocation error: {error_msg}",
+                "return_code": -1,
+            }
 
     def _build_obdiag_command(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """

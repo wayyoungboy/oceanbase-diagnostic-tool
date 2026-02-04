@@ -200,8 +200,9 @@ When a tool execution fails, explain the error and suggest alternatives."""
         if self.mcp_client and self.mcp_client.is_connected():
             try:
                 tools.extend(self.mcp_client.get_tools_for_openai())
-            except Exception:
-                pass
+            except Exception as e:
+                # MCP tools retrieval failure is non-critical, log verbosely
+                self.stdio.verbose("Failed to get MCP tools for OpenAI: {0}".format(e))
 
         # Fall back to built-in MCP server
         if self.builtin_mcp_server:
@@ -772,8 +773,9 @@ When a tool execution fails, explain the error and suggest alternatives."""
             try:
                 self._db_connector.conn.close()
                 self.stdio.verbose("Database connection closed")
-            except Exception:
-                pass
+            except Exception as e:
+                # Database connection cleanup failure is non-critical, log verbosely
+                self.stdio.verbose("Failed to close database connection: {0}".format(e))
             finally:
                 self._db_connector = None
 

@@ -65,7 +65,7 @@ class AnalyzeLogHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -150,7 +150,7 @@ class AnalyzeLogHandler(BaseHandler):
         try:
             self._log_info("analyze nodes's log start. Please wait a moment...")
             self._log_info('analyze start')
-            local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
+            local_store_parent_dir = os.path.join(self.gather_pack_dir, "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())))
             self._log_verbose(f"Use {local_store_parent_dir} as pack dir.")
             analyze_tuples = []
 

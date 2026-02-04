@@ -99,3 +99,32 @@ class ObdiagResult:
 
     def is_success(self):
         return self.code == self.SUCCESS_CODE
+
+    def get_exit_code(self):
+        """
+        Map ObdiagResult code to Unix exit code.
+        
+        Unix exit code conventions:
+        - 0: Success
+        - 1: General error (server/internal errors)
+        - 2: Misuse of shell command (input/parameter errors)
+        
+        Returns:
+            int: Unix exit code
+            - 0: Success (SUCCESS_CODE = 200)
+            - 1: Server error (SERVER_ERROR_CODE = 500)
+            - 2: Input error (INPUT_ERROR_CODE = 400)
+            - 1: Unknown error (fallback to server error)
+        
+        Note: Currently main.py uses 0/1 only. This method provides detailed
+        exit codes for future use or external integrations.
+        """
+        if self.code == self.SUCCESS_CODE:
+            return 0
+        elif self.code == self.INPUT_ERROR_CODE:
+            return 2
+        elif self.code == self.SERVER_ERROR_CODE:
+            return 1
+        else:
+            # Unknown error code, treat as server error
+            return 1

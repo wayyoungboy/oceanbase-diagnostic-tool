@@ -53,7 +53,7 @@ class GatherCoreHandler(BaseHandler):
         # Use ConfigAccessor if available
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -91,7 +91,7 @@ class GatherCoreHandler(BaseHandler):
             if self.is_scene:
                 pack_dir_this_command = self.local_stored_path
             else:
-                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             gather_tuples = []
 
@@ -429,7 +429,8 @@ class GatherCoreHandler(BaseHandler):
             pack_path = tup[5]
             try:
                 format_file_size = FileUtil.size_format(num=file_size, output_str=True)
-            except:
+            except Exception as e:
+                self.stdio.verbose("Failed to format file size {0}: {1}".format(file_size, e))
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
         return "\nGather Core Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)

@@ -17,12 +17,14 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, TYPE_CHECKING
 from src.common.result_type import ObdiagResult
 from src.common.context import HandlerContext
 from src.common.config_accessor import ConfigAccessor
-from src.common.handler_factory import HandlerFactory
 from src.common.ssh_connection_manager import SSHConnectionManager
+
+if TYPE_CHECKING:
+    from src.common.handler_factory import HandlerFactory
 
 
 class BaseHandler(ABC):
@@ -46,9 +48,9 @@ class BaseHandler(ABC):
         self._initialized = False
         self.config: Optional[ConfigAccessor] = None
         self.ssh_manager: Optional[SSHConnectionManager] = None
-        self.handler_factory: Optional[HandlerFactory] = None
+        self.handler_factory: Optional['HandlerFactory'] = None
 
-    def init(self, context: HandlerContext, ssh_manager: Optional[SSHConnectionManager] = None, handler_factory: Optional[HandlerFactory] = None, **kwargs) -> 'BaseHandler':
+    def init(self, context: HandlerContext, ssh_manager: Optional[SSHConnectionManager] = None, handler_factory: Optional['HandlerFactory'] = None, **kwargs) -> 'BaseHandler':
         """
         Initialize handler with context and options.
 

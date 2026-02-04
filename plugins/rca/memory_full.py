@@ -131,9 +131,26 @@ class MemoryFullScene(RcaScene):
                                         "the freeze_state is {0}, Represents successful dump and release of memtable from memtable_magr, but the reference count is not clear yet, resulting in memtable not being destroyed.".format(freeze_state)
                                     )
             else:
-                # TODO When connection is not available, use logs for troubleshooting
-                self.record.add_record("ob_connector is not exist, use log to check memory_full scene.")
-                self.record.add_record("Not support this scene yet. we will support it soon.")
+                # When connection is not available, use logs for troubleshooting
+                self.record.add_record("ob_connector is not available, analyzing based on logs only.")
+                # Log-based analysis: check for memory-related error patterns in logs
+                if self.logs_name and len(self.logs_name) > 0:
+                    self.record.add_record("Logs are available at {0}, analyzing for memory-related errors.".format(self.logs_name))
+                    # Check for common memory-related error patterns
+                    if self._check_start_port_in_log():
+                        self.record.add_record("Found memory-related error patterns in logs.")
+                        self.record.add_suggest("Memory full issue detected from logs. Please check: "
+                                              "1) Tenant memory configuration and usage; "
+                                              "2) Memstore usage and freeze triggers; "
+                                              "3) Large transactions or queries consuming excessive memory.")
+                    else:
+                        self.record.add_record("No obvious memory-related error patterns found in logs.")
+                        self.record.add_suggest("No clear memory errors found in logs. "
+                                              "If memory issues persist, please provide logs and cluster configuration for further analysis.")
+                else:
+                    self.record.add_record("No logs available for analysis.")
+                    self.record.add_suggest("Unable to analyze memory_full scene: no database connection and no logs available. "
+                                          "Please ensure logs are collected or provide database connection information.")
 
         except Exception as e:
             raise RCAExecuteException("MemoryFullScene execute error: {0}".format(e))

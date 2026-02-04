@@ -111,11 +111,14 @@ class AnalyzeVariableHandler(BaseHandler):
                 os.makedirs(os.path.abspath(store_dir_option))
             self.export_report_path = os.path.abspath(store_dir_option)
         else:
-            store_dir_option = './variable_report'
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'The report directory is not specified, and a "variable_report" directory will be created in the current directory.')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.export_report_path = os.path.abspath(store_dir_option)
+            # Default to current directory if not specified
+            self.export_report_path = "./"
+
+        # Create timestamped subdirectory similar to gather
+        target_dir = "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
+        self.export_report_path = os.path.join(self.export_report_path, target_dir)
+        if not os.path.exists(self.export_report_path):
+            os.makedirs(self.export_report_path, exist_ok=True)
 
         return True
 
@@ -144,12 +147,28 @@ class AnalyzeVariableHandler(BaseHandler):
             if key in file_variable_dict and db_variable_dict[key] != file_variable_dict[key]:
                 changed_variables_dict[key] = file_variable_dict[key]
         is_empty = True
+        
+        # Prepare structured data for JSON output (when silent mode)
+        structured_data = []
+        
         for k in changed_variables_dict:
             for row in db_variable_info:
                 key = str(row[1]) + '-' + str(row[3])
                 if k == key:
                     report_default_tb.add_row([row[0], row[1], row[2], row[3], changed_variables_dict[key], row[5]])
                     is_empty = False
+                    
+                    # Build structured data for JSON output
+                    if self.stdio and self.stdio.silent:
+                        structured_data.append({
+                            "version": str(row[0]) if row[0] else None,
+                            "tenant_id": int(row[1]) if row[1] else None,
+                            "zone": str(row[2]) if row[2] else None,
+                            "name": str(row[3]) if row[3] else None,
+                            "last_value": changed_variables_dict[key],
+                            "current_value": str(row[5]) if row[5] else None
+                        })
+        
         if not is_empty:
             now = datetime.datetime.now()
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
@@ -160,10 +179,19 @@ class AnalyzeVariableHandler(BaseHandler):
             self._log_info(Fore.RED + f"Since {last_gather_time}, the following variables have changed：" + Style.RESET_ALL)
             self._log_info(report_default_tb.get_string())
             self._log_info("Analyze variables changed finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string()})
+            
+            # Return structured JSON data in silent mode, table string otherwise
+            if self.stdio and self.stdio.silent:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name, "last_gather_time": last_gather_time})
+            else:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string()})
         else:
             self._log_info(f"Analyze variables changed finished. Since {last_gather_time}, No changes in variables")
-            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": f"Since {last_gather_time}, No changes in variables"})
+            message = f"Since {last_gather_time}, No changes in variables"
+            if self.stdio and self.stdio.silent:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": [], "message": message, "last_gather_time": last_gather_time})
+            else:
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": message})
 
     def execute(self):
         try:

@@ -21,7 +21,7 @@ import datetime
 import os
 import shutil
 import tarfile
-import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 
 from prettytable import PrettyTable
@@ -162,7 +162,7 @@ class GatherComponentLogHandler(BaseHandler):
             os.makedirs(os.path.abspath(self.store_dir))
 
         if not self.is_scene:
-            target_dir = "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
+            target_dir = "obdiag_gather_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
             self.store_dir = os.path.join(self.store_dir, target_dir)
             if not os.path.exists(self.store_dir):
                 os.makedirs(self.store_dir)
@@ -240,6 +240,11 @@ class GatherComponentLogHandler(BaseHandler):
 
     def __print_time_range_info(self):
         """Print time range information"""
+        # Use a flag to prevent duplicate output
+        if hasattr(self, '_time_range_info_printed'):
+            return
+        self._time_range_info_printed = True
+        
         if self.recent_count > 0:
             self._log_info(f'gather log with recent_count: {self.recent_count} (most recent {self.recent_count} files per log type)')
         else:
@@ -262,7 +267,7 @@ class GatherComponentLogHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -372,23 +377,23 @@ class GatherComponentLogHandler(BaseHandler):
         return node
 
     def __execute_tasks_parallel(self, tasks):
-        """Execute tasks in parallel with thread pool"""
-        file_queue = []
-        pool_sema = threading.BoundedSemaphore(value=self.thread_nums)
+        """Execute tasks in parallel using ThreadPoolExecutor for I/O-intensive log gathering"""
+        if not tasks:
+            return
+        
+        actual_workers = min(self.thread_nums, len(tasks))
+        self._log_verbose(f"Executing {len(tasks)} tasks with {actual_workers} workers")
 
-        def handle_from_node(task):
-            with pool_sema:
-                task.handle()
-
-        for task in tasks:
-            file_thread = threading.Thread(target=handle_from_node, args=(task,))
-            file_thread.start()
-            file_queue.append(file_thread)
-
-        self._log_verbose(f"file_queue len: {len(file_queue)}")
-
-        for task_thread in file_queue:
-            task_thread.join()
+        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+            future_to_task = {executor.submit(task.handle): task for task in tasks}
+            
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    self._log_error(f"Task execution failed: {e}")
+                    self.stdio.exception(f"Error in task execution: {e}")
 
         self._log_verbose("all tasks finished")
 

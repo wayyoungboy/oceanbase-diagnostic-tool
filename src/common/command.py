@@ -35,8 +35,9 @@ class LocalClient(object):
             if stderr:
                 self.stdio.error("run cmd = [{0}] on localhost, stderr=[{1}]".format(cmd, stderr))
             return stdout
-        except:
-            self.stdio.error("run cmd = [{0}] on localhost".format(cmd))
+        except Exception as e:
+            self.stdio.error("run cmd = [{0}] on localhost, error: {1}".format(cmd, e))
+            self.stdio.exception("")
 
     def run_get_stderr(self, cmd):
         try:
@@ -44,8 +45,9 @@ class LocalClient(object):
             out = subprocess.Popen(cmd, stderr=subprocess.STDOUT, stdout=subprocess.PIPE, shell=True, executable='/bin/bash')
             stdout, stderr = out.communicate()
             return stderr
-        except:
-            self.stdio.error("run cmd = [{0}] on localhost".format(cmd))
+        except Exception as e:
+            self.stdio.error("run cmd = [{0}] on localhost, error: {1}".format(cmd, e))
+            self.stdio.exception("")
 
 
 def download_file(ssh_client, remote_path, local_path, stdio=None):
@@ -216,7 +218,11 @@ def is_support_arch(ssh_client):
             return True
         else:
             return False
-    except:
+    except Exception as e:
+        # Architecture check failure is non-critical, return False
+        # Note: ssh_client may have stdio attribute for logging
+        if ssh_client and hasattr(ssh_client, 'stdio') and ssh_client.stdio:
+            ssh_client.stdio.verbose("Failed to check architecture: {0}".format(e))
         return False
 
 

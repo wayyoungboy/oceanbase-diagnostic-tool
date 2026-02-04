@@ -74,6 +74,10 @@ class TransactionWaitTimeoutScene(RcaScene):
         self.stdio.verbose("[TransactionWaitTimeoutScene] {0}".format(info))
 
     def execute(self):
+        # Deprecation warning: This scene is deprecated, use lock_conflict instead
+        self.stdio.warn("[DEPRECATED] The 'transaction_wait_timeout' scene is deprecated and will be removed in a future version.")
+        self.stdio.warn("Please use 'lock_conflict' scene instead: obdiag rca run --scene=lock_conflict --env error_msg=\"...\"")
+        self.record.add_record("[DEPRECATED] This scene is deprecated. Use 'lock_conflict' scene instead.")
         try:
             syslog_level_data = self.ob_connector.execute_sql_return_cursor_dictionary('SHOW PARAMETERS like "syslog_level"').fetchall()
             self.record.add_record("syslog_level data is {0}".format(syslog_level_data[0].get("value") or None))

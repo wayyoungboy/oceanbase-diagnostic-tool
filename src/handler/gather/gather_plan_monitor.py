@@ -116,7 +116,7 @@ class GatherPlanMonitorHandler(BaseHandler):
             if self.is_scene:
                 pack_dir_this_command = self.local_stored_path
             else:
-                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self.report_file_path = os.path.join(pack_dir_this_command, "sql_plan_monitor_report.html")
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             DirectoryUtil.mkdir(path=pack_dir_this_command, stdio=self.stdio)

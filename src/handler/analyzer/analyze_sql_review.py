@@ -44,7 +44,7 @@ class AnalyzeSQLReviewHandler(BaseHandler):
 
         # Initialize config
         if self.config:
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             if self.context.inner_config:
                 basic_config = self.context.inner_config['obdiag']['basic']

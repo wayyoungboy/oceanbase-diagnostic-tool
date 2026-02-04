@@ -20,6 +20,7 @@ import os
 from src.common.file_crypto.file_crypto import FileEncryptor
 from src.common.tool import ConfigOptionsParserUtil, DirectoryUtil
 from src.common.stdio import SafeStdio
+from src.common.config_schema import validate_config
 import oyaml as yaml
 import pathlib
 import sys
@@ -68,8 +69,8 @@ DEFAULT_INNER_CONFIG = {
         'basic': {
             'config_path': '~/.obdiag/config.yml',
             'config_backup_dir': '~/.obdiag/backup_conf',
-            'file_number_limit': 20,
-            'file_size_limit': '2G',
+            'file_number_limit': 50,  # Updated to match inner_config.yml
+            'file_size_limit': '5G',  # Updated to match inner_config.yml
             'dis_rsa_algorithms': 0,
             'strict_host_key_checking': 0,
         },
@@ -80,28 +81,34 @@ DEFAULT_INNER_CONFIG = {
             'log_level': 'INFO',
             'mode': 'obdiag',
             'stdout_handler_log_level': 'INFO',
-            'error_stream': 'sys.stdout',
+            'error_stream': 'sys.stderr',  # Updated to match code default (changed from sys.stdout)
             'silent': False,
         },
         'ssh_client': {
             'remote_client_sudo': False,
+            'cmd_exec_timeout': 180,  # Added to match inner_config.yml
         },
     },
     'analyze': {"thread_nums": 3},
     'check': {
         'ignore_version': False,
         'work_path': '~/.obdiag/check',
-        'max_workers': 12,
+        'max_workers': 12,  # Added to match inner_config.yml
         'report': {
-            'report_path': './check_report/',
             'export_type': 'table',
         },
         'package_file': '~/.obdiag/check/check_package.yaml',
-        'tasks_base_path': '~/.obdiag/check/tasks/',
     },
-    'gather': {'scenes_base_path': '~/.obdiag/gather/tasks', 'redact_processing_num': 3, "thread_nums": 3},
+    'gather': {
+        'work_path': '~/.obdiag/gather',
+        'redact_processing_num': 3,
+        'thread_nums': 3,
+        'gather_log': {
+            'search_version': 2,  # Added to match inner_config.yml
+        },
+    },
     'rca': {
-        'result_path': './obdiag_rca/',
+        'work_path': '~/.obdiag/rca',
     },
 }
 
@@ -168,15 +175,33 @@ class ConfigManager(Manager):
             self.config_file = config_file
             if not self.config_file.endswith('.encrypted'):
                 self.config_data = self.load_config()
+                # Validate configuration schema
+                self._validate_config_schema()
             else:
                 if config_password is None:
                     raise ValueError("config_password must be provided when decrypting a file")
                 fileEncryptor = FileEncryptor(context=None, stdio=self.stdio)
                 self.config_data = yaml.safe_load(fileEncryptor.decrypt_file(self.path, password=config_password))
+                # Validate configuration schema
+                self._validate_config_schema()
 
         else:
             parser = ConfigOptionsParserUtil()
             self.config_data = parser.parse_config(config_env_list)
+            # Validate configuration schema
+            self._validate_config_schema()
+
+    def _validate_config_schema(self):
+        """Validate configuration against schema."""
+        if self.config_data:
+            errors = validate_config(self.config_data, strict=False)
+            if errors:
+                error_msg = "Configuration validation errors:\n" + "\n".join(f"  - {e}" for e in errors)
+                if self.stdio:
+                    self.stdio.warn(error_msg)
+                else:
+                    import warnings
+                    warnings.warn(error_msg)
 
     def update_config_data(self, new_config_data, save_to_file=False):
         if not isinstance(new_config_data, dict):

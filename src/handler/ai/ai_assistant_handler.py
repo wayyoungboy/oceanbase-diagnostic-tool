@@ -507,5 +507,6 @@ Available diagnostic tools:
             if self.ai_client:
                 try:
                     self.ai_client.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Client cleanup failure is non-critical, log verbosely
+                    self.stdio.verbose("Failed to close AI client: {0}".format(e))

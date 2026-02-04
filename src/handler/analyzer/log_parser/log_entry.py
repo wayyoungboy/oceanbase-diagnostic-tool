@@ -44,7 +44,10 @@ class LogEntry(object):
     def __init__(self, log_id, log_type, file_offset, file_length):
         # key_info: only these vars dumped to files
         self.id = log_id
-        self.log_type = log_type  # deprecated
+        # NOTE: log_type is deprecated and no longer used in parsing logic.
+        # It is kept for backward compatibility with existing code that may reference it.
+        # New code should not rely on this field. Consider removing in a future major version.
+        self.log_type = log_type  # deprecated - kept for backward compatibility only
         # offset and length is used to locate this entry in original log file
         self.log_file_offset = file_offset
         # space occupation of this log entry in the file

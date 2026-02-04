@@ -67,7 +67,7 @@ class GatherDBMSXPLANHandler(BaseHandler):
             self.gather_timestamp = TimeUtils.get_current_us_timestamp()
 
         # Initialize options and config in _init
-        self.store_dir = os.path.join(self.store_dir, "obdiag_gather_pack_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
+        self.store_dir = os.path.join(self.store_dir, "obdiag_gather_{0}".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
 
         trace_id = self._get_option('trace_id')
         user = self._get_option('user')
@@ -132,7 +132,7 @@ class GatherDBMSXPLANHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:

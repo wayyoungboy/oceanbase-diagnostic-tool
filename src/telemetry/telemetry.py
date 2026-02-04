@@ -66,8 +66,14 @@ class Telemetry:
                     for thread in self.threads:
                         thread.start()
                 except Exception as e:
+                    # NOTE: Telemetry is non-critical and should fail silently without logging.
+                    # Do not add logging here to avoid exposing telemetry-related information.
+                    # This is intentional - telemetry failures should not affect user experience or create noise.
                     pass
         except Exception as e:
+            # NOTE: Telemetry is non-critical and should fail silently without logging.
+            # Do not add logging here to avoid exposing telemetry-related information.
+            # This is intentional - telemetry failures should not affect user experience or create noise.
             pass
 
     def get_cluster_info(self):
@@ -91,6 +97,9 @@ class Telemetry:
                 self.cluster_info = json.dumps(data)
                 self.cluster_info["obversion"] = version
             except Exception as e:
+                # NOTE: Telemetry is non-critical and should fail silently without logging.
+                # Do not add logging here to avoid exposing telemetry-related information.
+                # This is intentional - telemetry failures should not affect user experience or create noise.
                 pass
         return
 
@@ -118,6 +127,9 @@ class Telemetry:
 
                 self.tenant_info = json.dumps(data, cls=DateTimeEncoder)
             except Exception as e:
+                # NOTE: Telemetry is non-critical and should fail silently without logging.
+                # Do not add logging here to avoid exposing telemetry-related information.
+                # This is intentional - telemetry failures should not affect user experience or create noise.
                 pass
         return
 
@@ -159,6 +171,9 @@ class Telemetry:
             self.put_info_to_oceanbase()
 
         except Exception as e:
+            # NOTE: Telemetry is non-critical and should fail silently without logging.
+            # Do not add logging here to avoid exposing telemetry-related information.
+            # This is intentional - telemetry failures should not affect user experience or create noise.
             pass
         return
 
@@ -172,7 +187,10 @@ class Telemetry:
             headers = {'Content-Encoding': 'application/gzip', 'Content-Type': 'application/json'}
             conn.request("POST", const.TELEMETRY_PATH, payload, headers)
             res = conn.getresponse()
-        except:
+        except Exception as e:
+            # NOTE: Telemetry is non-critical and should fail silently without logging.
+            # Do not add logging here to avoid exposing telemetry-related information.
+            # This is intentional - telemetry failures should not affect user experience or create noise.
             pass
 
 

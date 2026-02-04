@@ -34,7 +34,7 @@ from src.handler.rca.plugins.gather import Gather_log
 from src.handler.rca.rca_exception import RCANotNeedExecuteException, RCAReportException
 from src.handler.rca.rca_list import RcaScenesListHandler
 from src.common.tool import Util
-from src.common.tool import StringUtils
+from src.common.tool import StringUtils, TimeUtils
 from colorama import Fore, Style
 from jinja2 import Template
 from src.common.result_type import ObdiagResult
@@ -106,7 +106,15 @@ class RCAHandler(BaseHandler):
         # build report
         store_dir = self._get_option("store_dir")
         if store_dir is None:
-            store_dir = "./obdiag_rca/"
+            # Default to current directory if not specified
+            store_dir = "./"
+        
+        # Create timestamped subdirectory similar to gather
+        target_dir = "obdiag_rca_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
+        store_dir = os.path.join(store_dir, target_dir)
+        if not os.path.exists(store_dir):
+            os.makedirs(store_dir, exist_ok=True)
+        
         self._log_verbose(f"RCAHandler.init store dir: {store_dir}")
         report = Result(self.context)
         report.set_save_path(store_dir)
@@ -145,7 +153,11 @@ class RCAHandler(BaseHandler):
         # set rca_deep_limit
         # Use new BaseHandler initialization pattern
         rca_list = RcaScenesListHandler()
-        rca_list.init(self.context)
+        # Use config work_path if available
+        if hasattr(self, 'config') and hasattr(self.config, 'rca_work_path'):
+            rca_list.init(self.context, work_path=self.config.rca_work_path)
+        else:
+            rca_list.init(self.context)
         all_scenes_info, all_scenes_item = rca_list.get_all_scenes()
         self.context.set_variable("rca_deep_limit", len(all_scenes_info))
         self.all_scenes = all_scenes_item
@@ -160,7 +172,8 @@ class RCAHandler(BaseHandler):
         self.tasks = None
         self.context.set_variable("input_parameters", self._get_option("env"))
         self.context.set_variable("env", self._get_option("env"))
-        self.store_dir = self._get_option("store_dir", "./obdiag_rca/")
+        
+        # store_dir is already set above, just update context variable
         self.context.set_variable("store_dir", self.store_dir)
 
         self._log_verbose(
@@ -186,7 +199,9 @@ class RCAHandler(BaseHandler):
                 if self.rca_scene is None:
                     raise ValueError(f"rca_scene :{scene_name} is not exist")
 
-                self.store_dir = os.path.expanduser(os.path.join(self.store_dir, f"obdiag_{scene_name}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"))
+                # Create scene-specific subdirectory within the timestamped directory
+                scene_subdir = f"obdiag_{scene_name}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+                self.store_dir = os.path.expanduser(os.path.join(self.store_dir, scene_subdir))
                 if not os.path.exists(self.store_dir):
                     os.makedirs(self.store_dir)
                 self.context.set_variable("store_dir", self.store_dir)

@@ -430,8 +430,8 @@ class IO(object):
             elif error_stream == "sys.stdout":
                 error_stream = sys.stdout
             else:
-                # TODO 3.X NEED CHANGE TO sys.stderr
-                error_stream = sys.stdout
+                # Default to sys.stderr for unknown error_stream values
+                error_stream = sys.stderr
         if self._root_io:
             return False
         if self._cur_err_obj == self._err_obj:
@@ -668,6 +668,8 @@ class IO(object):
         return self.sync_obj
 
     def start_progressbar(self, text, maxval, widget_type='download'):
+        if self.silent:
+            return False
         if self.sync_obj:
             return False
         self.sync_obj = self._start_sync_obj(IOProgressBar, lambda x: x.finish_progressbar(), text=text, maxval=maxval, widget_type=widget_type)

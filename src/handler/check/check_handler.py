@@ -31,7 +31,7 @@ from src.common.scene import get_version_by_type
 from src.handler.check.check_exception import CheckException
 from src.handler.check.check_report import TaskReport, CheckReport, CheckReportException
 from src.common.tool import Util, DynamicLoading
-from src.common.tool import StringUtils
+from src.common.tool import StringUtils, TimeUtils
 
 
 class CheckHandler(BaseHandler):
@@ -53,7 +53,6 @@ class CheckHandler(BaseHandler):
         # Use ConfigAccessor for configuration access
         self.max_workers = self.config.check_max_workers
         self.work_path = self.config.check_work_path
-        self.export_report_path = self.config.check_report_path
         self.export_report_type = self.config.check_report_type
         self.ignore_version = self.config.check_ignore_version
 
@@ -158,9 +157,18 @@ class CheckHandler(BaseHandler):
             if store_dir:
                 self.export_report_path = os.path.expanduser(store_dir)
                 self._log_verbose(f"export_report_path change to {self.export_report_path}")
+            else:
+                # Default to current directory if not specified
+                self.export_report_path = "./"
 
             if not os.path.exists(self.export_report_path):
                 self._log_warn(f"{self.export_report_path} not exists. mkdir it!")
+                os.makedirs(self.export_report_path, exist_ok=True)
+
+            # Create timestamped subdirectory similar to gather
+            target_dir = "obdiag_check_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
+            self.export_report_path = os.path.join(self.export_report_path, target_dir)
+            if not os.path.exists(self.export_report_path):
                 os.makedirs(self.export_report_path, exist_ok=True)
 
             # Change self.export_report_type
@@ -343,6 +351,12 @@ class CheckHandler(BaseHandler):
             # Execute tasks concurrently using ThreadPoolExecutor
             task_names = list(self.tasks.keys())
             failed_tasks = []
+            completed_count = 0
+
+            # Start progress bar
+            if self.stdio and task_count > 0:
+                progress_text = f"Running {self.check_target_type} checks"
+                self.stdio.start_progressbar(progress_text, maxval=task_count, widget_type='simple_progress')
 
             with ThreadPoolExecutor(max_workers=actual_workers) as executor:
                 # Submit all tasks
@@ -358,6 +372,15 @@ class CheckHandler(BaseHandler):
                     except Exception as e:
                         failed_tasks.append(task_name)
                         self._log_error(f"Task {task_name} failed with exception: {e}")
+                    
+                    # Update progress bar
+                    completed_count += 1
+                    if self.stdio:
+                        self.stdio.update_progressbar(completed_count)
+
+            # Finish progress bar
+            if self.stdio:
+                self.stdio.finish_progressbar()
 
             if failed_tasks:
                 self._log_warn(f"The following tasks failed: {failed_tasks}")
@@ -366,10 +389,19 @@ class CheckHandler(BaseHandler):
             return self.report.report_tobeMap()
         except CheckReportException as e:
             self._log_error(f"Report error: {e}")
+            # Ensure progress bar is finished even on error
+            if self.stdio:
+                self.stdio.finish_progressbar()
             raise CheckException(f"Report error: {e}")
         except Exception as e:
+            # Ensure progress bar is finished even on error
+            if self.stdio:
+                self.stdio.finish_progressbar()
             raise CheckException(f"Internal error: {e}")
         finally:
+            # Ensure progress bar is finished
+            if self.stdio:
+                self.stdio.finish_progressbar()
             # Cleanup: close SSH connections
             self.__cleanup()
 

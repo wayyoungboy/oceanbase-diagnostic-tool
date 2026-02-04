@@ -63,7 +63,7 @@ class GatherPerfHandler(BaseHandler):
         if self.config:
             self.file_number_limit = self.config.gather_file_number_limit
             self.file_size_limit = self.config.gather_file_size_limit
-            self.config_path = self.config.config_path
+            self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
@@ -112,7 +112,7 @@ class GatherPerfHandler(BaseHandler):
             if self.is_scene:
                 pack_dir_this_command = self.local_stored_path
             else:
-                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+                pack_dir_this_command = os.path.join(self.local_stored_path, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {pack_dir_this_command} as pack dir.")
             gather_tuples = []
 
@@ -210,8 +210,8 @@ class GatherPerfHandler(BaseHandler):
                 # Clean up remote directory
                 try:
                     ssh_client.exec_cmd("rm -rf {0}".format(remote_dir_full_path))
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.stdio.verbose("Failed to clean up remote directory {0}: {1}".format(remote_dir_full_path, e))
                 return resp
 
             gather_errors = []
@@ -438,8 +438,9 @@ class GatherPerfHandler(BaseHandler):
             if started_loading:
                 try:
                     self.stdio.stop_loading('gather perf sample')
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Loading indicator cleanup failure is non-critical, log verbosely
+                    self.stdio.verbose("Failed to stop loading indicator: {0}".format(e))
 
     def __perf_checker(self, ssh_client):
         """
@@ -500,8 +501,9 @@ class GatherPerfHandler(BaseHandler):
             if started_loading:
                 try:
                     self.stdio.stop_loading('gather perf flame')
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Loading indicator cleanup failure is non-critical, log verbosely
+                    self.stdio.verbose("Failed to stop loading indicator: {0}".format(e))
 
     def __gather_top(self, ssh_client, gather_path, pid_observer):
         """

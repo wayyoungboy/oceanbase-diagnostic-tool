@@ -31,8 +31,8 @@ from src.common.version import get_obdiag_version
 from src.telemetry.telemetry import telemetry
 from src.common.version import OBDIAG_VERSION
 
-# TODO when obdiag_version ≥ 3.0, the default value of err_stream will be changed to sys.stderr
-ROOT_IO = IO(1, error_stream=sys.stdout)
+# Default error stream is now sys.stderr (changed from sys.stdout in version 3.0+)
+ROOT_IO = IO(1, error_stream=sys.stderr)
 OBDIAG_HOME_PATH = os.path.join(os.getenv('HOME'), 'oceanbase-diagnostic-tool')
 
 
@@ -291,26 +291,27 @@ class ObdiagOriginCommand(BaseCommand):
             ret = None
             try:
                 ret = self._do_command(obdiag)
-                exit_code = 0
             except Exception as e:
                 ROOT_IO.exception(e)
                 ROOT_IO.error('command failed. Please contact OceanBase community. e: {0}'.format(e))
                 ret = ObdiagResult(code=ObdiagResult.SERVER_ERROR_CODE, error_data="command failed. Please contact OceanBase community. e: {0}".format(e))
-                exit_code = 1
+            
+            # Ensure ret is ObdiagResult
+            if not isinstance(ret, ObdiagResult):
+                ROOT_IO.error('The return value of the command is not ObdiagResult. Please contact OceanBase community. The return value is: {0}'.format(ret))
+                ret = ObdiagResult(code=ObdiagResult.SERVER_ERROR_CODE, error_data="The return value of the command is not ObdiagResult. Maybe the command not support silent. Please contact thebase community.")
+            
+            # Set trace_id and command for result
+            ret.set_trace_id(self.trace_id)
+            def args_to_str(args):
+                args_str = ""
+                for arg in args:
+                    args_str += arg + " "
+                return args_str.strip()
+            ret.set_command(self.prev_cmd + " " + args_to_str(self.args))
+            
             # if silent is true ,print ret
             if ROOT_IO.silent:
-                if isinstance(ret, ObdiagResult) is False:
-                    ROOT_IO.error('The return value of the command is not ObdiagResult. Please contact OceanBase community. The return value is: {0}'.format(ret))
-                    ret = ObdiagResult(code=ObdiagResult.SERVER_ERROR_CODE, error_data="The return value of the command is not ObdiagResult. Maybe the command not support silent. Please contact thebase community.")
-                ret.set_trace_id(self.trace_id)
-
-                def args_to_str(args):
-                    args_str = ""
-                    for arg in args:
-                        args_str += arg + " "
-                    return args_str.strip()
-
-                ret.set_command(self.prev_cmd + " " + args_to_str(self.args))
                 ROOT_IO.set_silent(False)
                 # get silent_type
                 silent_type = self.inner_config_change_map.get("obdiag", {}).get("logger", {}).get("silent_type", None)
@@ -319,27 +320,25 @@ class ObdiagOriginCommand(BaseCommand):
                 else:
                     ROOT_IO.print(ret.get_result())
                 ROOT_IO.set_silent(True)
-            if self.has_trace:
+            
+            if self.has_trace and not ROOT_IO.silent:
                 ROOT_IO.print('Trace ID: %s' % self.trace_id)
                 ROOT_IO.print('If you want to view detailed obdiag logs, please run: {0} display-trace {1}'.format(obdiag_bin, self.trace_id))
             telemetry.put_data()
             # check obdiag new version
             if not ROOT_IO.silent:
                 check_new_obdiag_version(ROOT_IO)
-            if ROOT_IO.silent:
-                if ret.get_code() == ObdiagResult.SUCCESS_CODE:
-                    return True
-                else:
-                    return False
-            return True
+            
+            # Return success status based on ObdiagResult code
+            # This ensures both silent and non-silent modes return correct exit codes
+            return ret.get_code() == ObdiagResult.SUCCESS_CODE
         except NotImplementedError:
             ROOT_IO.exception('command \'%s\' is not implemented' % self.prev_cmd)
         except SystemExit:
             pass
         except KeyboardInterrupt:
             ROOT_IO.exception('Keyboard Interrupt')
-        except:
-            e = sys.exc_info()[1]
+        except Exception as e:
             ROOT_IO.exception('Running Error: %s' % e)
 
     def _do_command(self, obdiag):
@@ -377,8 +376,11 @@ class DisplayTraceCommand(ObdiagOriginCommand):
             if UUID(trace_id).version != 1:
                 ROOT_IO.critical('%s is not trace id' % trace_id)
                 return False
-        except:
-            ROOT_IO.print('%s is not trace id' % trace_id)
+        except (ValueError, AttributeError) as e:
+            ROOT_IO.print('%s is not trace id: %s' % (trace_id, e))
+            return False
+        except Exception as e:
+            ROOT_IO.warn('Failed to validate trace_id %s: %s' % (trace_id, e))
             return False
         cmd = 'cd {} && grep -h "\[{}\]" $(ls -tr {}*) | sed "s/\[{}\] //g" '.format(log_dir, trace_id, log_dir, trace_id)
         data = LocalClient.execute_command(cmd)

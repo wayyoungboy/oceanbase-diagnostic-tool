@@ -113,8 +113,10 @@ class StdioTransport(MCPTransport):
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
-            except Exception:
-                pass
+            except Exception as e:
+                # Process cleanup failure is non-critical, log verbosely
+                if hasattr(self, 'stdio') and self.stdio:
+                    self.stdio.verbose("Failed to cleanup process: {0}".format(e))
             finally:
                 self.process = None
 
@@ -175,8 +177,10 @@ class StdioTransport(MCPTransport):
         try:
             self.process.stdin.write(json.dumps(notification) + "\n")
             self.process.stdin.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            # Notification send failure is non-critical, log verbosely
+            if hasattr(self, 'stdio') and self.stdio:
+                self.stdio.verbose("Failed to send notification: {0}".format(e))
 
     def is_connected(self) -> bool:
         return self._running and self.process is not None and self.process.poll() is None
@@ -374,8 +378,10 @@ class MCPClientManager:
         for server in self.servers.values():
             try:
                 server.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                # Server stop failure is non-critical, log verbosely
+                if hasattr(self, 'stdio') and self.stdio:
+                    self.stdio.verbose("Failed to stop MCP server: {0}".format(e))
         self.servers.clear()
         self._tools_map.clear()
 
@@ -398,8 +404,10 @@ class MCPClientManager:
                                 self._tools_map[f"{name}_{tool_name}"] = name
                             else:
                                 self._tools_map[tool_name] = name
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Tool mapping failure is non-critical, log verbosely
+                    if hasattr(self, 'stdio') and self.stdio:
+                        self.stdio.verbose("Failed to map tool {0}: {1}".format(tool_name, e))
 
     def list_tools(self) -> List[Dict]:
         """List all tools from all connected servers"""
@@ -409,8 +417,10 @@ class MCPClientManager:
                 try:
                     tools = server.list_tools()
                     all_tools.extend(tools)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Tool listing failure is non-critical, log verbosely
+                    if hasattr(self, 'stdio') and self.stdio:
+                        self.stdio.verbose("Failed to list tools from server {0}: {1}".format(server_name, e))
         return all_tools
 
     def call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None, timeout: float = 300.0) -> Dict:
@@ -428,8 +438,10 @@ class MCPClientManager:
                             if tool.get("name") == name:
                                 server_name = sname
                                 break
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Server name lookup failure is non-critical, log verbosely
+                        if hasattr(self, 'stdio') and self.stdio:
+                            self.stdio.verbose("Failed to lookup server name: {0}".format(e))
                 if server_name:
                     break
 

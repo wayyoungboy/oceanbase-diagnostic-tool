@@ -21,7 +21,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 import datetime
 import tabulate
-import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import uuid
 from src.common.base_handler import BaseHandler
 from src.common.command import get_observer_version
@@ -142,26 +142,22 @@ class AnalyzeMemoryHandler(BaseHandler):
         self._validate_initialized()
 
         try:
-            local_store_parent_dir = os.path.join(self.gather_pack_dir, f"obdiag_analyze_pack_{TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())}")
+            local_store_parent_dir = os.path.join(self.gather_pack_dir, f"obdiag_analyze_{TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp())}")
             self._log_verbose(f"Use {local_store_parent_dir} as pack dir.")
             analyze_tuples = []
 
-            # analyze_thread default thread nums is 3
+            # Use ThreadPoolExecutor for I/O-intensive tasks (SSH, file operations)
             analyze_thread_nums = int(self.context.inner_config.get("analyze", {}).get("thread_nums") or 3)
-            pool_sema = threading.BoundedSemaphore(value=analyze_thread_nums)
+            actual_workers = min(analyze_thread_nums, len(self.nodes)) if self.nodes else 1
 
-            def handle_from_node(node):
-                with pool_sema:
-                    st = time.time()
-                    resp = self.__handle_from_node(node, local_store_parent_dir)
-                    analyze_tuples.append((node.get("ip"), resp["skip"], resp["error"], int(time.time() - st), resp["result_pack_path"]))
-
-            nodes_threads = []
             self._log_info("analyze nodes's log start. Please wait a moment...")
             self.stdio.start_loading('analyze memory start')
+
+            # Prepare nodes list
+            nodes_to_process = []
             for node in self.nodes:
                 if self.directly_analyze_files:
-                    if nodes_threads:
+                    if nodes_to_process:
                         break
                     node["ip"] = '127.0.0.1'
                 else:
@@ -169,11 +165,22 @@ class AnalyzeMemoryHandler(BaseHandler):
                         local_ip = NetUtils.get_inner_ip()
                         node = self.nodes[0]
                         node["ip"] = local_ip
-                node_threads = threading.Thread(target=handle_from_node, args=(node,))
-                node_threads.start()
-                nodes_threads.append(node_threads)
-            for node_thread in nodes_threads:
-                node_thread.join()
+                nodes_to_process.append(node)
+
+            # Execute nodes in parallel using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+                future_to_node = {executor.submit(self.__handle_from_node, node, local_store_parent_dir): node for node in nodes_to_process}
+                
+                for future in as_completed(future_to_node):
+                    node = future_to_node[future]
+                    try:
+                        st = time.time()
+                        resp = future.result()
+                        elapsed_time = int(time.time() - st)
+                        analyze_tuples.append((node.get("ip"), resp["skip"], resp["error"], elapsed_time, resp["result_pack_path"]))
+                    except Exception as e:
+                        self._log_error(f"Failed to analyze node {node.get('ip')}: {e}")
+                        analyze_tuples.append((node.get("ip"), True, str(e), 0, ""))
 
             summary_tuples = self.__get_overall_summary(analyze_tuples)
             self.stdio.stop_loading('analyze memory sucess')

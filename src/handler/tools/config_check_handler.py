@@ -16,7 +16,8 @@
 @desc: Handler for checking config validity including DB connection and SSH connection (Migrated to BaseHandler)
 """
 
-import threading
+import threading  # Lock still needed for thread-safe access to shared data structures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
 from src.common.tool import Util
@@ -120,8 +121,9 @@ class ConfigCheckHandler(BaseHandler):
                     if version_result and len(version_result) > 0:
                         ob_version = version_result[0][0]
                         self.stdio.print("  " + Fore.GREEN + "  OceanBase Version: {0}".format(ob_version) + Style.RESET_ALL)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Version query failure is non-critical, log verbosely
+                    self.stdio.verbose("Failed to query OceanBase version: {0}".format(e))
 
                 results["db_connection"] = {"status": "success", "host": db_host, "port": db_port}
                 results["summary"]["success"] += 1
@@ -161,19 +163,25 @@ class ConfigCheckHandler(BaseHandler):
         self.stdio.print("  Found {0} observer node(s) to check".format(len(nodes)))
         self.stdio.print("")
 
-        # Check each node in parallel
-        threads = []
+        # Check each node in parallel using ThreadPoolExecutor for I/O-intensive SSH operations
         node_results = []
-        lock = threading.Lock()
-
-        for idx, node in enumerate(nodes):
-            node_config = self._merge_node_config(node, global_config)
-            thread = threading.Thread(target=self._check_single_node, args=(idx + 1, node_config, "observer", node_results, lock, results))
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
+        lock = threading.Lock()  # Still needed for thread-safe access to shared data structures
+        
+        # Use ThreadPoolExecutor for better thread pool management
+        max_workers = min(len(nodes), 10)  # Limit concurrent SSH connections
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_node = {
+                executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "observer", node_results, lock, results): node
+                for idx, node in enumerate(nodes)
+            }
+            
+            # Wait for all tasks to complete
+            for future in as_completed(future_to_node):
+                try:
+                    future.result()
+                except Exception as e:
+                    node = future_to_node[future]
+                    self.stdio.error(f"Failed to check node {node.get('ip', 'unknown')}: {e}")
 
         results["observer_nodes"] = node_results
         self.stdio.print("")
@@ -202,19 +210,25 @@ class ConfigCheckHandler(BaseHandler):
         self.stdio.print("  Found {0} obproxy node(s) to check".format(len(nodes)))
         self.stdio.print("")
 
-        # Check each node in parallel
-        threads = []
+        # Check each node in parallel using ThreadPoolExecutor for I/O-intensive SSH operations
         node_results = []
-        lock = threading.Lock()
-
-        for idx, node in enumerate(nodes):
-            node_config = self._merge_node_config(node, global_config)
-            thread = threading.Thread(target=self._check_single_node, args=(idx + 1, node_config, "obproxy", node_results, lock, results))
-            threads.append(thread)
-            thread.start()
-
-        for thread in threads:
-            thread.join()
+        lock = threading.Lock()  # Still needed for thread-safe access to shared data structures
+        
+        # Use ThreadPoolExecutor for better thread pool management
+        max_workers = min(len(nodes), 10)  # Limit concurrent SSH connections
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_node = {
+                executor.submit(self._check_single_node, idx + 1, self._merge_node_config(node, global_config), "obproxy", node_results, lock, results): node
+                for idx, node in enumerate(nodes)
+            }
+            
+            # Wait for all tasks to complete
+            for future in as_completed(future_to_node):
+                try:
+                    future.result()
+                except Exception as e:
+                    node = future_to_node[future]
+                    self.stdio.error(f"Failed to check node {node.get('ip', 'unknown')}: {e}")
 
         results["obproxy_nodes"] = node_results
         self.stdio.print("")

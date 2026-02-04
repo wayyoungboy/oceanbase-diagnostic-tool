@@ -26,14 +26,22 @@ from src.common.result_type import ObdiagResult
 class RcaScenesListHandler(BaseHandler):
     def _init(self, work_path=None, **kwargs):
         """Subclass initialization"""
+        # Use config value if available, otherwise use parameter or default
         if not work_path:
-            work_path = const.RCA_WORK_PATH
+            if hasattr(self, 'config') and hasattr(self.config, 'rca_work_path'):
+                work_path = self.config.rca_work_path
+            else:
+                work_path = const.RCA_WORK_PATH
 
         if os.path.exists(os.path.expanduser(work_path)):
             self.work_path = os.path.expanduser(work_path)
         else:
-            self._log_warn(f"input rca work_path not exists: {work_path}, use default path {const.RCA_WORK_PATH}")
-            self.work_path = const.RCA_WORK_PATH
+            # Fallback to default if specified path doesn't exist
+            default_path = const.RCA_WORK_PATH
+            if hasattr(self, 'config') and hasattr(self.config, 'rca_work_path'):
+                default_path = self.config.rca_work_path
+            self._log_warn(f"input rca work_path not exists: {work_path}, use default path {default_path}")
+            self.work_path = os.path.expanduser(default_path)
 
     def get_all_scenes(self):
         # find all rca file

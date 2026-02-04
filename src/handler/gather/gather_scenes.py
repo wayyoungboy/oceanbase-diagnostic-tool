@@ -103,6 +103,21 @@ class GatherSceneHandler(BaseHandler):
                 self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
                 os.makedirs(os.path.abspath(store_dir_option))
             self.gather_pack_dir = os.path.abspath(store_dir_option)
+        
+        # Use config work_path if available, otherwise use parameter or default
+        # tasks_base_path is automatically derived from work_path + "tasks"
+        if hasattr(self, 'config') and hasattr(self.config, 'gather_work_path'):
+            work_path = self.config.gather_work_path
+            self.tasks_base_path = os.path.join(work_path, "tasks")
+        elif tasks_base_path == "~/.obdiag/gather/tasks/":
+            # If using default, derive from work_path
+            if hasattr(self, 'config') and hasattr(self.config, 'gather_work_path'):
+                work_path = self.config.gather_work_path
+                self.tasks_base_path = os.path.join(work_path, "tasks")
+            else:
+                self.tasks_base_path = tasks_base_path
+        else:
+            self.tasks_base_path = tasks_base_path
 
         if scene_option:
             self.scene = scene_option
@@ -198,8 +213,8 @@ class GatherSceneHandler(BaseHandler):
         if self.scene:
             new = re.sub(r'\{|\}', '', self.scene)
             items = re.split(r'[;,]', new)
-            scene = GatherScenesListHandler()
-            scene.init(self.context)
+            # Pass work_path to GatherScenesListHandler
+            scene = GatherScenesListHandler(self.context, yaml_tasks_base_path=self.tasks_base_path)
             for item in items:
                 task_data = scene.get_one_task(item)
                 if task_data["task_type"] == 'py':
@@ -218,7 +233,7 @@ class GatherSceneHandler(BaseHandler):
 
     def __init_report_path(self):
         try:
-            self.report_path = os.path.join(self.gather_pack_dir, f"obdiag_gather_pack_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
+            self.report_path = os.path.join(self.gather_pack_dir, f"obdiag_gather_{TimeUtils.timestamp_to_filename_time(self.gather_timestamp)}")
             self._log_verbose(f"Use {self.report_path} as pack dir.")
             DirectoryUtil.mkdir(path=self.report_path, stdio=self.stdio)
         except Exception as e:
