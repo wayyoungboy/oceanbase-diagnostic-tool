@@ -17,9 +17,9 @@
 """
 
 # obdiag version
-OBDIAG_VERSION = '<VERSION>'
+OBDIAG_VERSION = '4.1.0'
 # obdiag build time
-OBDIAG_BUILD_TIME = '<B_TIME>'
+OBDIAG_BUILD_TIME = 'Wed Feb  4 17:01:56 CST 2026'
 
 
 def get_obdiag_version():

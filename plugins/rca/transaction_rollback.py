@@ -39,6 +39,7 @@ class TransactionRollbackScene(RcaScene):
         self.work_path = self.store_dir
         self.trans_is_killed_log = None
         self.rollback_reason = None
+        self.all_log_files = []
 
     def init(self, context):
         super().init(context)
@@ -64,39 +65,66 @@ class TransactionRollbackScene(RcaScene):
             syslog_level_data = self.ob_connector.execute_sql_return_cursor_dictionary(' SHOW PARAMETERS like "syslog_level"').fetchall()
             self.record.add_record("syslog_level data is {0}".format(syslog_level_data[0].get("value") or None))
 
+            # Performance optimization: gather logs once, then analyze locally
+            # This avoids multiple network transfers and file I/O operations
+            work_path_all_logs = os.path.join(self.work_path, "all_logs")
+            if not os.path.exists(work_path_all_logs):
+                os.makedirs(work_path_all_logs)
+
+            self.stdio.verbose("Gathering all relevant logs once for performance optimization")
+            self.gather_log.set_parameters("scope", "observer")
+            # Don't set grep here - gather all logs, then filter locally
+            all_logs = self.gather_log.execute(save_path=work_path_all_logs)
+
+            if not all_logs or len(all_logs) == 0:
+                self.record.add_record("No logs gathered")
+                self.record.add_suggest("No logs found. Please check log collection configuration.")
+                return
+
+            self.stdio.verbose("Gathered {0} log files, analyzing locally".format(len(all_logs)))
+            self.record.add_record("Gathered {0} log files to {1}".format(len(all_logs), work_path_all_logs))
+
+            # Store log files for local analysis
+            self.all_log_files = all_logs
+
             # Step 1: gather log about "trans is killed"
             self.verbose("Step 1: Searching for 'trans is killed' logs")
-            work_path_trans_is_killed = self.work_path + "/trans_is_killed"
-            self.gather_log.grep("trans is killed")
-            logs_name = self.gather_log.execute(save_path=work_path_trans_is_killed)
+            work_path_trans_is_killed = os.path.join(self.work_path, "trans_is_killed")
+            if not os.path.exists(work_path_trans_is_killed):
+                os.makedirs(work_path_trans_is_killed)
 
-            if logs_name is None or len(logs_name) <= 0:
+            trans_is_killed_logs = []
+            trans_id = None
+            for log_file in self.all_log_files:
+                try:
+                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            if "trans is killed" in line:
+                                trans_is_killed_logs.append(line)
+                                if not self.trans_is_killed_log:
+                                    self.trans_is_killed_log = line
+                                    # Try to extract trans_id
+                                    match = re.search(r'trans_id[=:]\{?txid:(\d+)\}?', line)
+                                    if match:
+                                        trans_id = match.group(1)
+                except Exception as e:
+                    self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+            if trans_is_killed_logs:
+                # Save filtered logs to separate file
+                trans_is_killed_log_file = os.path.join(work_path_trans_is_killed, "trans_is_killed_filtered.log")
+                with open(trans_is_killed_log_file, "w", encoding="utf-8") as f:
+                    f.writelines(trans_is_killed_logs)
+                self.record.add_record("Found {0} 'trans is killed' log entries in {1}".format(len(trans_is_killed_logs), work_path_trans_is_killed))
+                if self.trans_is_killed_log:
+                    self.record.add_record("Found trans is killed log: {0}".format(self.trans_is_killed_log[:500]))
+                if trans_id:
+                    self.record.add_record("Extracted trans_id: {0}".format(trans_id))
+            else:
                 self.record.add_record("No log found about 'trans is killed'")
                 self.record.add_suggest("No 'trans is killed' log found. The transaction rollback may be caused by other reasons. " "Please check 'sending error packet' logs for more details.")
                 return
-
-            self.record.add_record("Found 'trans is killed' logs in {0}".format(work_path_trans_is_killed))
-
-            # Extract trans_id from logs
-            trans_id = None
-            for log_name in logs_name:
-                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        if "trans is killed" in line:
-                            self.trans_is_killed_log = line
-                            # Try to extract trans_id
-                            match = re.search(r'trans_id[=:]\{?txid:(\d+)\}?', line)
-                            if match:
-                                trans_id = match.group(1)
-                            break
-                if self.trans_is_killed_log:
-                    break
-
-            if self.trans_is_killed_log:
-                self.record.add_record("Found trans is killed log: {0}".format(self.trans_is_killed_log[:500]))
-                if trans_id:
-                    self.record.add_record("Extracted trans_id: {0}".format(trans_id))
 
             # Step 2: Check for leader switch (switch to follower forcedly)
             self.verbose("Step 2: Checking for leader switch")
@@ -122,12 +150,28 @@ class TransactionRollbackScene(RcaScene):
 
     def _check_leader_switch(self):
         """Check for leader switch logs"""
-        work_path_switch = self.work_path + "/switch_to_follower"
-        self.gather_log.grep("switch to follower forcedly success")
-        logs_name = self.gather_log.execute(save_path=work_path_switch)
+        work_path_switch = os.path.join(self.work_path, "switch_to_follower")
+        if not os.path.exists(work_path_switch):
+            os.makedirs(work_path_switch)
 
-        if logs_name and len(logs_name) > 0:
-            self.record.add_record("Found 'switch to follower forcedly success' logs in {0}".format(work_path_switch))
+        # Analyze logs locally from already gathered logs
+        switch_logs = []
+        for log_file in self.all_log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if "switch to follower forcedly success" in line:
+                            switch_logs.append(line)
+            except Exception as e:
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if switch_logs:
+            # Save filtered logs to separate file
+            switch_log_file = os.path.join(work_path_switch, "switch_to_follower_filtered.log")
+            with open(switch_log_file, "w", encoding="utf-8") as f:
+                f.writelines(switch_logs)
+            self.record.add_record("Found {0} 'switch to follower forcedly success' log entries in {1}".format(len(switch_logs), work_path_switch))
             self.rollback_reason = "leader_switch"
             self.record.add_suggest(
                 "Transaction was killed due to LEADER SWITCH (leader revoke). "
@@ -137,79 +181,103 @@ class TransactionRollbackScene(RcaScene):
             )
             return True
         else:
-            self.record.add_record("No 'switch to follower forcedly success' logs found")
+            self.record.add_record("No 'switch to follower forcedly success' logs found in gathered logs")
             return False
 
     def _check_transaction_timeout(self):
         """Check for transaction timeout"""
-        work_path_expired = self.work_path + "/trans_expired_time"
-        self.gather_log.grep("trans_expired_time")
-        logs_name = self.gather_log.execute(save_path=work_path_expired)
+        work_path_expired = os.path.join(self.work_path, "trans_expired_time")
+        if not os.path.exists(work_path_expired):
+            os.makedirs(work_path_expired)
 
-        if logs_name is None or len(logs_name) <= 0:
-            self.record.add_record("No 'trans_expired_time' logs found")
-            return False
-
-        self.record.add_record("Found 'trans_expired_time' logs in {0}".format(work_path_expired))
-
-        for log in logs_name:
+        # Analyze logs locally from already gathered logs
+        expired_logs = []
+        for log_file in self.all_log_files:
             try:
-                with open(log, "r", encoding="utf-8", errors="ignore") as f:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
                         if "trans_expired_time" in line:
-                            # Extract trans_expired_time value
-                            match = re.search(r'trans_expired_time[=:](\d+)', line)
-                            if match:
-                                expired_time_us = int(match.group(1))
-                                # Convert to datetime (microseconds to seconds)
-                                expired_time_s = expired_time_us / 1e6
-                                expired_datetime = datetime.datetime.utcfromtimestamp(expired_time_s)
-
-                                # Extract log timestamp
-                                log_time_match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\]', line)
-                                if log_time_match:
-                                    log_time_str = log_time_match.group(1)
-                                    log_datetime = datetime.datetime.strptime(log_time_str[:26], '%Y-%m-%d %H:%M:%S.%f')
-
-                                    if expired_datetime <= log_datetime:
-                                        self.record.add_record("trans_expired_time ({0}) <= log_time ({1})".format(expired_datetime, log_datetime))
-                                        self.rollback_reason = "timeout"
-                                        self.record.add_suggest(
-                                            "Transaction was killed due to TIMEOUT. " "The transaction expired before completion. " "Please check and adjust transaction timeout settings: " "ob_trx_timeout, ob_query_timeout, ob_trx_idle_timeout."
-                                        )
-                                        return True
+                            expired_logs.append(line)
             except Exception as e:
-                self.verbose("Error parsing log file {0}: {1}".format(log, e))
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if not expired_logs:
+            self.record.add_record("No 'trans_expired_time' logs found in gathered logs")
+            return False
+
+        # Save filtered logs to separate file
+        expired_log_file = os.path.join(work_path_expired, "trans_expired_time_filtered.log")
+        with open(expired_log_file, "w", encoding="utf-8") as f:
+            f.writelines(expired_logs)
+        self.record.add_record("Found {0} 'trans_expired_time' log entries in {1}".format(len(expired_logs), work_path_expired))
+
+        # Analyze timeout conditions
+        for line in expired_logs:
+            try:
+                # Extract trans_expired_time value
+                match = re.search(r'trans_expired_time[=:](\d+)', line)
+                if match:
+                    expired_time_us = int(match.group(1))
+                    # Convert to datetime (microseconds to seconds)
+                    expired_time_s = expired_time_us / 1e6
+                    expired_datetime = datetime.datetime.utcfromtimestamp(expired_time_s)
+
+                    # Extract log timestamp
+                    log_time_match = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)\]', line)
+                    if log_time_match:
+                        log_time_str = log_time_match.group(1)
+                        log_datetime = datetime.datetime.strptime(log_time_str[:26], '%Y-%m-%d %H:%M:%S.%f')
+
+                        if expired_datetime <= log_datetime:
+                            self.record.add_record("trans_expired_time ({0}) <= log_time ({1})".format(expired_datetime, log_datetime))
+                            self.rollback_reason = "timeout"
+                            self.record.add_suggest(
+                                "Transaction was killed due to TIMEOUT. " "The transaction expired before completion. " "Please check and adjust transaction timeout settings: " "ob_trx_timeout, ob_query_timeout, ob_trx_idle_timeout."
+                            )
+                            return True
+            except Exception as e:
+                self.verbose("Error parsing log line: {0}".format(e))
 
         return False
 
     def _check_election_errors(self):
         """Check election logs for errors that may have caused leader switch"""
-        work_path_election = self.work_path + "/election_errors"
-        # Set scope to "election" to gather election logs
-        self.gather_log.set_parameters("scope", "election")
-        self.gather_log.grep("election")
-        logs_name = self.gather_log.execute(save_path=work_path_election)
+        work_path_election = os.path.join(self.work_path, "election_errors")
+        if not os.path.exists(work_path_election):
+            os.makedirs(work_path_election)
 
-        if logs_name and len(logs_name) > 0:
-            error_found = False
-            for log_name in logs_name:
-                try:
-                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
-                        if "ERROR" in content or "error" in content.lower():
-                            error_found = True
-                            break
-                except Exception:
-                    pass
+        # Analyze election logs locally from already gathered logs
+        # Note: We need to check if election logs were included in the initial gather
+        # If scope was "observer", election logs should be included
+        election_logs = []
+        error_found = False
+        for log_file in self.all_log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if "election" in line.lower():
+                            election_logs.append(line)
+                            if "ERROR" in line or "error" in line.lower():
+                                error_found = True
+            except Exception as e:
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if election_logs:
+            # Save filtered logs to separate file
+            election_log_file = os.path.join(work_path_election, "election_filtered.log")
+            with open(election_log_file, "w", encoding="utf-8") as f:
+                f.writelines(election_logs)
 
             if error_found:
-                self.record.add_record("Found ERROR in election logs")
+                self.record.add_record("Found ERROR in election logs ({0} entries)".format(len(election_logs)))
                 self.record.add_suggest("Election errors detected. The leader switch may have been caused by " "abnormal conditions (network issues, disk problems, etc.). " "Please check election logs in {0} for details.".format(work_path_election))
             else:
-                self.record.add_record("No ERROR found in election logs")
+                self.record.add_record("Found {0} election log entries, but no ERROR found".format(len(election_logs)))
                 self.record.add_suggest("No election errors found. The leader switch may have been triggered by " "RS scheduling (auto leader rebalancing). " "Please check if auto_leader_switch is enabled.")
+        else:
+            self.record.add_record("No election logs found in gathered logs. " "Note: If election logs are needed, set scope='election' in gather_log configuration.")
 
     def get_scene_info(self):
         return {

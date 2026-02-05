@@ -38,6 +38,7 @@ class TransactionWaitTimeoutScene(RcaScene):
         self.error_msg_type = None
         self.error_msg = None
         self.work_path = self.store_dir
+        self.all_log_files = []
 
     def init(self, context):
         super().init(context)
@@ -82,6 +83,28 @@ class TransactionWaitTimeoutScene(RcaScene):
             syslog_level_data = self.ob_connector.execute_sql_return_cursor_dictionary('SHOW PARAMETERS like "syslog_level"').fetchall()
             self.record.add_record("syslog_level data is {0}".format(syslog_level_data[0].get("value") or None))
 
+            # Performance optimization: gather logs once, then analyze locally
+            # This avoids multiple network transfers and file I/O operations
+            work_path_all_logs = os.path.join(self.work_path, "all_logs")
+            if not os.path.exists(work_path_all_logs):
+                os.makedirs(work_path_all_logs)
+
+            self.stdio.verbose("Gathering all relevant logs once for performance optimization")
+            self.gather_log.set_parameters("scope", "observer")
+            # Don't set grep here - gather all logs, then filter locally
+            all_logs = self.gather_log.execute(save_path=work_path_all_logs)
+
+            if not all_logs or len(all_logs) == 0:
+                self.record.add_record("No logs gathered")
+                self.record.add_suggest("No logs found. Please check log collection configuration.")
+                return
+
+            self.stdio.verbose("Gathered {0} log files, analyzing locally".format(len(all_logs)))
+            self.record.add_record("Gathered {0} log files to {1}".format(len(all_logs), work_path_all_logs))
+
+            # Store log files for local analysis
+            self.all_log_files = all_logs
+
             if self.error_msg_type == "Shared lock conflict":
                 self._analyze_shared_lock_conflict()
             elif self.error_msg_type == "Lock wait timeout exceeded":
@@ -96,43 +119,63 @@ class TransactionWaitTimeoutScene(RcaScene):
 
     def _analyze_shared_lock_conflict(self):
         """Analyze Shared lock conflict by searching logs"""
-        # Gather log about "lock_for_read need retry"
+        # Analyze logs locally from already gathered logs
         work_path_lock = os.path.join(self.work_path, "lock_for_read")
-        self.gather_log.grep("lock_for_read need retry")
-        logs_name = self.gather_log.execute(save_path=work_path_lock)
+        if not os.path.exists(work_path_lock):
+            os.makedirs(work_path_lock)
 
-        if not logs_name or len(logs_name) == 0:
-            self.record.add_record("No 'lock_for_read need retry' logs found")
-            self.record.add_suggest("No lock_for_read logs found. Please check if syslog_level includes WDIAG.")
-            return
-
-        self.record.add_record("Found 'lock_for_read need retry' logs in {0}".format(work_path_lock))
-
-        # Find data_trans_id in logs
+        lock_for_read_logs = []
         data_trans_id_line = None
-        for log_name in logs_name:
+        for log_file in self.all_log_files:
             try:
-                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
-                        if "data_trans_id" in line:
+                        if "lock_for_read need retry" in line:
+                            lock_for_read_logs.append(line)
+                        if "data_trans_id" in line and not self.data_trans_id_value:
                             data_trans_id_line = line
                             match = re.search(r"data_trans_id_:\{txid:(\d+)\}", line)
                             if match:
                                 self.data_trans_id_value = match.group(1)
-                                break
-                if self.data_trans_id_value:
-                    break
             except Exception as e:
-                self.verbose("Error reading log: {0}".format(e))
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if not lock_for_read_logs:
+            self.record.add_record("No 'lock_for_read need retry' logs found in gathered logs")
+            self.record.add_suggest("No lock_for_read logs found. Please check if syslog_level includes WDIAG.")
+            return
+
+        # Save filtered logs to separate file
+        lock_log_file = os.path.join(work_path_lock, "lock_for_read_filtered.log")
+        with open(lock_log_file, "w", encoding="utf-8") as f:
+            f.writelines(lock_for_read_logs)
+        self.record.add_record("Found {0} 'lock_for_read need retry' log entries in {1}".format(len(lock_for_read_logs), work_path_lock))
 
         if self.data_trans_id_value:
             self.record.add_record("Found blocking transaction: tx_id={0}".format(self.data_trans_id_value))
 
-            # Gather logs for the blocking transaction
+            # Extract logs for the blocking transaction from already gathered logs
             work_path_tx = os.path.join(self.work_path, "data_trans_id_{0}".format(self.data_trans_id_value))
-            self.gather_log.grep("{0}".format(self.data_trans_id_value))
-            self.gather_log.execute(save_path=work_path_tx)
+            if not os.path.exists(work_path_tx):
+                os.makedirs(work_path_tx)
+
+            tx_logs = []
+            for log_file in self.all_log_files:
+                try:
+                    with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            if self.data_trans_id_value in line:
+                                tx_logs.append(line)
+                except Exception as e:
+                    self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+            if tx_logs:
+                tx_log_file = os.path.join(work_path_tx, "tx_{0}_filtered.log".format(self.data_trans_id_value))
+                with open(tx_log_file, "w", encoding="utf-8") as f:
+                    f.writelines(tx_logs)
+                self.record.add_record("Found {0} log entries for tx_id={1}, saved to {2}".format(len(tx_logs), self.data_trans_id_value, work_path_tx))
 
             self.record.add_suggest(
                 "Shared lock conflict caused by transaction (tx_id:{0}) in commit phase. "
@@ -148,35 +191,38 @@ class TransactionWaitTimeoutScene(RcaScene):
 
     def _analyze_lock_wait_timeout(self):
         """Analyze Lock wait timeout exceeded by searching logs"""
-        # Gather log about "mvcc_write conflict"
+        # Analyze logs locally from already gathered logs
         work_path_mvcc = os.path.join(self.work_path, "mvcc_write_conflict")
-        self.gather_log.grep("mvcc_write conflict")
-        logs_name = self.gather_log.execute(save_path=work_path_mvcc)
+        if not os.path.exists(work_path_mvcc):
+            os.makedirs(work_path_mvcc)
 
-        if not logs_name or len(logs_name) == 0:
-            self.record.add_record("No 'mvcc_write conflict' logs found")
-            self.record.add_suggest("No mvcc_write conflict logs found. Please check if syslog_level includes INFO.")
-            return
-
-        self.record.add_record("Found 'mvcc_write conflict' logs in {0}".format(work_path_mvcc))
-
-        # Find conflict_tx_id in logs
+        mvcc_logs = []
         conflict_tx_id_line = None
-        for log_name in logs_name:
+        for log_file in self.all_log_files:
             try:
-                with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
                     lines = f.readlines()
                     for line in lines:
-                        if "conflict_tx_id" in line:
+                        if "mvcc_write conflict" in line:
+                            mvcc_logs.append(line)
+                        if "conflict_tx_id" in line and not self.conflict_tx_id_value:
                             conflict_tx_id_line = line
                             match = re.search(r"conflict_tx_id=\{txid:(\d+)\}", line)
                             if match:
                                 self.conflict_tx_id_value = match.group(1)
-                                break
-                if self.conflict_tx_id_value:
-                    break
             except Exception as e:
-                self.verbose("Error reading log: {0}".format(e))
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if not mvcc_logs:
+            self.record.add_record("No 'mvcc_write conflict' logs found in gathered logs")
+            self.record.add_suggest("No mvcc_write conflict logs found. Please check if syslog_level includes INFO.")
+            return
+
+        # Save filtered logs to separate file
+        mvcc_log_file = os.path.join(work_path_mvcc, "mvcc_write_conflict_filtered.log")
+        with open(mvcc_log_file, "w", encoding="utf-8") as f:
+            f.writelines(mvcc_logs)
+        self.record.add_record("Found {0} 'mvcc_write conflict' log entries in {1}".format(len(mvcc_logs), work_path_mvcc))
 
         if self.conflict_tx_id_value:
             self.record.add_record("Found blocking transaction: conflict_tx_id={0}".format(self.conflict_tx_id_value))

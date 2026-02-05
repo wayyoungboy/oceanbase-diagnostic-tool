@@ -44,6 +44,7 @@ class TransactionOtherErrorScene(RcaScene):
         self.error_code = None
         self.error_info = None
         self.work_path = self.store_dir
+        self.all_log_files = []
 
     def init(self, context):
         super().init(context)
@@ -85,6 +86,28 @@ class TransactionOtherErrorScene(RcaScene):
 
             error_type = self.error_info["type"]
 
+            # Performance optimization: gather logs once, then analyze locally
+            # This avoids multiple network transfers and file I/O operations
+            work_path_all_logs = os.path.join(self.work_path, "all_logs")
+            if not os.path.exists(work_path_all_logs):
+                os.makedirs(work_path_all_logs)
+
+            self.stdio.verbose("Gathering all relevant logs once for performance optimization")
+            self.gather_log.set_parameters("scope", "observer")
+            # Don't set grep here - gather all logs, then filter locally
+            all_logs = self.gather_log.execute(save_path=work_path_all_logs)
+
+            if not all_logs or len(all_logs) == 0:
+                self.record.add_record("No logs gathered")
+                self.record.add_suggest("No logs found. Please check log collection configuration.")
+                return
+
+            self.stdio.verbose("Gathered {0} log files, analyzing locally".format(len(all_logs)))
+            self.record.add_record("Gathered {0} log files to {1}".format(len(all_logs), work_path_all_logs))
+
+            # Store log files for local analysis
+            self.all_log_files = all_logs
+
             if error_type == "memory":
                 self._handle_memory_error()
             elif error_type == "rpc":
@@ -108,16 +131,31 @@ class TransactionOtherErrorScene(RcaScene):
         elif self.error_code == "-4030":
             self.record.add_suggest("Error -4030: Over tenant memory limits. " "Please expand tenant memory or check for memory leaks.")
 
-        # Gather MEMORY logs
-        work_path_memory = self.work_path + "/MEMORY_logs"
-        self.gather_log.grep("MEMORY")
-        logs_name = self.gather_log.execute(save_path=work_path_memory)
+        # Analyze MEMORY logs locally from already gathered logs
+        work_path_memory = os.path.join(self.work_path, "MEMORY_logs")
+        if not os.path.exists(work_path_memory):
+            os.makedirs(work_path_memory)
 
-        if logs_name and len(logs_name) > 0:
-            self.record.add_record("Memory logs gathered to: {0}".format(work_path_memory))
+        memory_logs = []
+        for log_file in self.all_log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if "MEMORY" in line:
+                            memory_logs.append(line)
+            except Exception as e:
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if memory_logs:
+            # Save filtered logs to separate file
+            memory_log_file = os.path.join(work_path_memory, "memory_filtered.log")
+            with open(memory_log_file, "w", encoding="utf-8") as f:
+                f.writelines(memory_logs)
+            self.record.add_record("Found {0} MEMORY log entries, saved to: {1}".format(len(memory_logs), work_path_memory))
             self.record.add_suggest("Please check memory logs in {0} for memory usage during the error time.".format(work_path_memory))
         else:
-            self.record.add_record("No MEMORY logs found")
+            self.record.add_record("No MEMORY logs found in gathered logs")
 
         # Check current memory status
         try:
@@ -146,38 +184,62 @@ class TransactionOtherErrorScene(RcaScene):
 
         self.record.add_suggest("RPC errors ({0}: {1}) are most likely caused by network issues. " "Please use 'tsar' to check network conditions during the error time.".format(self.error_code, self.error_info["msg"]))
 
-        # Gather EASY SLOW logs
-        work_path_easy_slow = self.work_path + "/EASY_SLOW"
-        self.gather_log.grep("EASY SLOW")
-        logs_name = self.gather_log.execute(save_path=work_path_easy_slow)
+        # Analyze EASY SLOW logs locally from already gathered logs
+        work_path_easy_slow = os.path.join(self.work_path, "EASY_SLOW")
+        if not os.path.exists(work_path_easy_slow):
+            os.makedirs(work_path_easy_slow)
 
-        if logs_name and len(logs_name) > 0:
-            easy_slow_count = 0
-            for log_name in logs_name:
-                try:
-                    with open(log_name, "r", encoding="utf-8", errors="ignore") as f:
-                        log_content = f.readlines()
-                        easy_slow_count += len(log_content)
-                except Exception:
-                    pass
+        easy_slow_logs = []
+        for log_file in self.all_log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if "EASY SLOW" in line:
+                            easy_slow_logs.append(line)
+            except Exception as e:
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
 
-            self.record.add_record("Found {0} EASY SLOW log entries".format(easy_slow_count))
+        if easy_slow_logs:
+            # Save filtered logs to separate file
+            easy_slow_log_file = os.path.join(work_path_easy_slow, "easy_slow_filtered.log")
+            with open(easy_slow_log_file, "w", encoding="utf-8") as f:
+                f.writelines(easy_slow_logs)
+            easy_slow_count = len(easy_slow_logs)
+            self.record.add_record("Found {0} EASY SLOW log entries, saved to: {1}".format(easy_slow_count, work_path_easy_slow))
 
             if easy_slow_count >= 1000:
                 self.record.add_suggest("EASY SLOW log count over 1000! This indicates serious network latency issues.")
-            elif easy_slow_count > 0:
+            else:
                 self.record.add_suggest("Found EASY SLOW logs indicating network latency. " "Please check network conditions and logs in {0}".format(work_path_easy_slow))
         else:
-            self.record.add_record("No EASY SLOW logs found")
+            self.record.add_record("No EASY SLOW logs found in gathered logs")
 
-        # Check for post trans errors
-        work_path_post_trans = self.work_path + "/post_trans"
-        self.gather_log.grep("post trans")
-        post_trans_logs = self.gather_log.execute(save_path=work_path_post_trans)
+        # Analyze post trans errors locally from already gathered logs
+        work_path_post_trans = os.path.join(self.work_path, "post_trans")
+        if not os.path.exists(work_path_post_trans):
+            os.makedirs(work_path_post_trans)
 
-        if post_trans_logs and len(post_trans_logs) > 0:
-            self.record.add_record("Found 'post trans' logs, saved to: {0}".format(work_path_post_trans))
+        post_trans_logs = []
+        for log_file in self.all_log_files:
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        if "post trans" in line:
+                            post_trans_logs.append(line)
+            except Exception as e:
+                self.verbose("Error reading log file {0}: {1}".format(log_file, e))
+
+        if post_trans_logs:
+            # Save filtered logs to separate file
+            post_trans_log_file = os.path.join(work_path_post_trans, "post_trans_filtered.log")
+            with open(post_trans_log_file, "w", encoding="utf-8") as f:
+                f.writelines(post_trans_logs)
+            self.record.add_record("Found {0} 'post trans' log entries, saved to: {1}".format(len(post_trans_logs), work_path_post_trans))
             self.record.add_suggest("Found transaction RPC send failures. Check logs in {0} for details.".format(work_path_post_trans))
+        else:
+            self.record.add_record("No 'post trans' logs found in gathered logs")
 
     def _handle_overflow_error(self):
         """Handle size overflow error (-4019)"""

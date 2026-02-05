@@ -862,8 +862,14 @@ class MajorHoldScene(RcaScene):
 
     def _collect_observer_logs(self, tenant_id, tenant_record):
         """Collect relevant observer logs for the tenant"""
-        # Check if we need to collect logs based on RS location
+        # Use gather_log plugin (middleware) instead of direct SSH commands
+        # gather_log plugin is already initialized in RcaScene.init() via context.get_variable("gather_log")
         try:
+            if self.gather_log is None:
+                tenant_record.add_record("gather_log plugin is not available, skipping log collection")
+                return
+
+            # Check if we need to collect logs based on RS location
             sql = "SELECT SVR_IP, SVR_PORT FROM oceanbase.DBA_OB_TABLET_REPLICAS WHERE TENANT_ID='{0}' AND LS_ID=1 LIMIT 1;".format(tenant_id)
             rs_data = self._execute_sql_safe(sql, "get RS location")
 
@@ -873,16 +879,33 @@ class MajorHoldScene(RcaScene):
 
                 node, ssh_client = self._find_observer_node(svr_ip, svr_port)
                 if node:
-                    log_name = "/tmp/major_merge_progress_checker_{0}.log".format(tenant_id)
-                    local_log = os.path.join(self.local_path, "major_merge_progress_checker_{0}.log".format(tenant_id))
+                    # Set filter nodes (only collect logs from specific node)
+                    self.gather_log.set_parameters("filter_nodes_list", [node])
 
-                    ssh_client.exec_cmd('grep "major_merge_progress_checker" {0}/log/rootservice.log* | grep "T{1}" -m 500 > {2}'.format(node.get("home_path"), tenant_id, log_name))
-                    ssh_client.download(log_name, local_log)
-                    ssh_client.exec_cmd("rm -rf {0}".format(log_name))
+                    # Set log scope and target
+                    self.gather_log.set_parameters("scope", "rootservice")  # Only collect rootservice logs
+                    self.gather_log.set_parameters("target", "observer")
 
-                    tenant_record.add_record("Collected major_merge_progress_checker logs")
+                    # Set grep keywords (AND logic: both keywords must be present)
+                    self.gather_log.grep("major_merge_progress_checker")
+                    self.gather_log.grep("T{0}".format(tenant_id))
+
+                    # Execute log collection
+                    log_save_path = os.path.join(self.local_path, "major_merge_progress_checker_{0}".format(tenant_id))
+                    result_log_files = self.gather_log.execute(save_path=log_save_path)
+
+                    if result_log_files and len(result_log_files) > 0:
+                        tenant_record.add_record("Collected major_merge_progress_checker logs ({0} files) to {1}".format(len(result_log_files), log_save_path))
+                    else:
+                        tenant_record.add_record("No major_merge_progress_checker logs found for tenant {0}".format(tenant_id))
+
+                    # Reset gather_log state for next use
+                    self.gather_log.reset()
+                else:
+                    tenant_record.add_record("Cannot find observer node for {0}:{1}".format(svr_ip, svr_port))
         except Exception as e:
             self.stdio.warn("Failed to collect observer logs: {0}".format(e))
+            tenant_record.add_record("Failed to collect observer logs: {0}".format(e))
 
     def _check_memory_throttling(self, tenant_id, tenant_record):
         """
