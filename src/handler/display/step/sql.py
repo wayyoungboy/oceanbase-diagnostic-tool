@@ -17,6 +17,7 @@
 """
 from src.common.stdio import SafeStdio
 from src.common.tool import StringUtils
+
 # Note: StepSQLHandler does not inherit BaseHandler, so using tabulate for consistency
 from tabulate import tabulate
 

@@ -232,9 +232,7 @@ class TransactionRollbackScene(RcaScene):
                         if expired_datetime <= log_datetime:
                             self.record.add_record("trans_expired_time ({0}) <= log_time ({1})".format(expired_datetime, log_datetime))
                             self.rollback_reason = "timeout"
-                            self.record.add_suggest(
-                                "Transaction was killed due to TIMEOUT. " "The transaction expired before completion. " "Please check and adjust transaction timeout settings: " "ob_trx_timeout, ob_query_timeout, ob_trx_idle_timeout."
-                            )
+                            self.record.add_suggest("Transaction was killed due to TIMEOUT. " "The transaction expired before completion. " "Please check and adjust transaction timeout settings: " "ob_trx_timeout, ob_query_timeout, ob_trx_idle_timeout.")
                             return True
             except Exception as e:
                 self.verbose("Error parsing log line: {0}".format(e))

@@ -19,11 +19,8 @@
 from __future__ import absolute_import, division, print_function
 
 import warnings
-warnings.warn(
-    "src.common.tool is being refactored. Import from src.common.utils instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
+
+warnings.warn("src.common.tool is being refactored. Import from src.common.utils instead.", DeprecationWarning, stacklevel=2)
 
 import http
 import io
@@ -72,6 +69,7 @@ from random import choice
 from io import BytesIO
 import copy
 from colorama import Fore, Style
+
 # ruamel.yaml dependency removed - YamlLoader class deprecated and unused
 from src.common.err import EC_SQL_EXECUTE_FAILED
 from src.common.stdio import SafeStdio

@@ -257,6 +257,7 @@ class ReportSectionsMixin:
                     except Exception:
                         pass
             from src.common.tool import TimeUtils
+
             table_info_file = os.path.join(self.local_stored_path, "obdiag_tabledump_result_{0}.txt".format(TimeUtils.timestamp_to_filename_time(self.gather_timestamp)))
             self._log_verbose(f"table info file path:{table_info_file}")
             table_info = self.get_table_info(table_info_file)
@@ -316,7 +317,9 @@ class ReportSectionsMixin:
                             FROM information_schema.columns
                             WHERE TABLE_SCHEMA = '{0}' AND TABLE_NAME = '{1}' AND COLLATION_NAME IS NOT NULL
                             ORDER BY COLUMN_NAME
-                        """.format(db_name.replace("'", "''"), table_name.replace("'", "''"))
+                        """.format(
+                            db_name.replace("'", "''"), table_name.replace("'", "''")
+                        )
                         connector = self.db_connector
                     else:
                         collation_sql = """
@@ -327,7 +330,9 @@ class ReportSectionsMixin:
                             INNER JOIN oceanbase.__all_virtual_database d ON t.tenant_id = d.tenant_id AND t.database_id = d.database_id
                             WHERE UPPER(d.database_name) = UPPER('{0}') AND UPPER(t.table_name) = UPPER('{1}')
                             AND c.collation_type IS NOT NULL ORDER BY c.column_name
-                        """.format(db_name.replace("'", "''"), table_name.replace("'", "''"))
+                        """.format(
+                            db_name.replace("'", "''"), table_name.replace("'", "''")
+                        )
                         connector = self.sys_connector
 
                     result = connector.execute_sql(collation_sql)
@@ -335,11 +340,16 @@ class ReportSectionsMixin:
                         for row in result:
                             table_schema, table_name_col, column_name, data_type, collation_name, charset_name = row
                             if collation_name:
-                                collation_info.append({
-                                    'database': table_schema, 'table': table_name_col,
-                                    'column': column_name, 'data_type': data_type,
-                                    'collation': collation_name, 'charset': charset_name,
-                                })
+                                collation_info.append(
+                                    {
+                                        'database': table_schema,
+                                        'table': table_name_col,
+                                        'column': column_name,
+                                        'data_type': data_type,
+                                        'collation': collation_name,
+                                        'charset': charset_name,
+                                    }
+                                )
                                 all_collations.add(collation_name)
                 except Exception as e:
                     self._log_warn(f"Failed to check collation for table {db_name}.{table_name}: {str(e)}")
@@ -360,7 +370,8 @@ class ReportSectionsMixin:
                 warning_content += "<thead><tr style='background-color: #f0f0f0;'><th>Database</th><th>Table</th><th>Column</th><th>Data Type</th><th>Collation</th><th>Charset</th></tr></thead><tbody>"
                 for info in collation_info:
                     warning_content += "<tr><td>{0}</td><td>{1}</td><td>{2}</td><td>{3}</td><td><strong>{4}</strong></td><td>{5}</td></tr>".format(
-                        info['database'], info['table'], info['column'], info['data_type'], info['collation'], info['charset'] or 'N/A')
+                        info['database'], info['table'], info['column'], info['data_type'], info['collation'], info['charset'] or 'N/A'
+                    )
                 warning_content += "</tbody></table>"
                 warning_content += "<p><strong>Recommendation:</strong> Consider modifying table/column collations to be consistent for better SQL execution performance.</p></div>"
                 self._report(warning_content)

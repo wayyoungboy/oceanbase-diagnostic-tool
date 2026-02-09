@@ -18,6 +18,7 @@
 import os
 import stat
 import shutil
+
 # Note: FileUtil import is deferred to avoid circular dependency
 
 
@@ -67,10 +68,12 @@ class DirectoryUtil(object):
             else:
                 # Deferred import to avoid circular dependency
                 from src.common.utils.file_util import FileUtil
+
                 FileUtil.copy(src_name, dst_name, stdio)
         for link_dest, dst_name in links:
             # Deferred import to avoid circular dependency
             from src.common.utils.file_util import FileUtil
+
             FileUtil.symlink(link_dest, dst_name, stdio)
         return ret
 

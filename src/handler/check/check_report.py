@@ -39,6 +39,7 @@ from markupsafe import escape
 
 class TaskStatus(str, Enum):
     """Task execution status enumeration."""
+
     NORMAL = "normal"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -84,7 +85,7 @@ class CheckReport:
             # Create snapshot of tasks for thread-safe access
             with self._tasks_lock:
                 tasks_snapshot = list(self.tasks)
-            
+
             if self.export_report_type == "table":
                 self.export_report_table(tasks_snapshot)
             elif self.export_report_type == "json":
@@ -132,7 +133,7 @@ class CheckReport:
             # For backward compatibility, use current tasks (should be called with snapshot)
             with self._tasks_lock:
                 tasks = list(self.tasks)
-        
+
         failMap = {}
         criticalMap = {}
         warningMap = {}
@@ -163,7 +164,7 @@ class CheckReport:
             # For backward compatibility
             with self._tasks_lock:
                 tasks = list(self.tasks)
-        
+
         try:
             # Note: CheckReport is not a Handler, so using tabulate directly for consistency
             headers = ["task", "task_report"]
@@ -249,7 +250,7 @@ class CheckReport:
             # For backward compatibility
             with self._tasks_lock:
                 tasks = list(self.tasks)
-        
+
         try:
             html_template_head = """
                 <!DOCTYPE html>
@@ -395,35 +396,23 @@ class CheckReport:
             for task in tasks:
                 # Escape HTML to prevent XSS
                 safe_task_name = escape(str(task.name))
-                
+
                 if len(task.all_fail()) != 0:
-                    safe_report = '<br>'.join([
-                        escape(str(item)).replace("\\n", "<br>") 
-                        for item in task.all_fail()
-                    ])
+                    safe_report = '<br>'.join([escape(str(item)).replace("\\n", "<br>") for item in task.all_fail()])
                     fail_map_html.append({"task": safe_task_name, "task_report": safe_report})
-                
+
                 if len(task.all_critical()) != 0:
-                    safe_report = '<br>'.join([
-                        escape(str(item)).replace("\\n", "<br>") 
-                        for item in task.all_critical()
-                    ])
+                    safe_report = '<br>'.join([escape(str(item)).replace("\\n", "<br>") for item in task.all_critical()])
                     critical_map_html.append({"task": safe_task_name, "task_report": safe_report})
-                
+
                 if len(task.all_warning()) != 0:
-                    safe_report = '<br>'.join([
-                        escape(str(item)).replace("\\n", "<br>") 
-                        for item in task.all_warning()
-                    ])
+                    safe_report = '<br>'.join([escape(str(item)).replace("\\n", "<br>") for item in task.all_warning()])
                     warning_map_html.append({"task": safe_task_name, "task_report": safe_report})
-                
+
                 if len(task.all()) != 0:
-                    safe_report = '<br>'.join([
-                        escape(str(item)).replace("\\n", "<br>") 
-                        for item in task.all()
-                    ])
+                    safe_report = '<br>'.join([escape(str(item)).replace("\\n", "<br>") for item in task.all()])
                     report_all_html.append({"task": safe_task_name, "task_report": safe_report})
-                
+
                 if len(task.all_fail()) == 0 and len(task.all_critical()) == 0 and len(task.all_warning()) == 0:
                     report_all_html.append({"task": safe_task_name, "task_report": "all pass"})
 
@@ -437,7 +426,7 @@ class CheckReport:
             template_table = Template(html_template_data_table)
             template_report_info_table = Template(html_template_report_info_table)
             template_tail = Template(html_template_tail)
-            
+
             cluster_ips = ""
 
             # Check if this is build_before case (should not get version)
@@ -455,19 +444,10 @@ class CheckReport:
             for server in self.context.cluster_config["servers"]:
                 cluster_ips += server["ip"]
                 cluster_ips += ";"
-            
+
             with open(self.report_path + ".html", 'w', encoding='utf-8') as fp:
                 fp.write(template_head.render(report_title=report_title_str) + "\n")
-                fp.write(
-                    template_report_info_table.render(
-                        report_title=report_title_str, 
-                        report_time=self.report_time, 
-                        obdiag_version=OBDIAG_VERSION, 
-                        ob_cluster_ip=cluster_ips, 
-                        ob_commit_id=ob_commit_id or "", 
-                        ob_version=ob_version or ""
-                    ) + "\n"
-                )
+                fp.write(template_report_info_table.render(report_title=report_title_str, report_time=self.report_time, obdiag_version=OBDIAG_VERSION, ob_cluster_ip=cluster_ips, ob_commit_id=ob_commit_id or "", ob_version=ob_version or "") + "\n")
 
                 if len(fail_map_html) != 0:
                     rendered_fail_map_html = template_table.render(task_name="Fail Tasks Report", tasks=fail_map_html)

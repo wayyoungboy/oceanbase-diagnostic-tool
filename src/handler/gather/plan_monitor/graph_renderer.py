@@ -24,9 +24,17 @@ class GraphRendererMixin:
             rows = 0 if None == item['OUTPUT_ROWS'] else item['OUTPUT_ROWS']
             otherstat = self.detail_otherstat_explain(item)
             data = data + "{start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d, tag:'op', depth:%d, rescan:%d, svr_ip:'%s', otherstat:'%s'}," % (
-                start, end, end - start, item['PLAN_LINE_ID'], item['PLAN_OPERATION'],
-                item['PROCESS_NAME'], rows, item['PLAN_DEPTH'], item['RESCAN_TIMES'],
-                item['SVR_IP'], otherstat,
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PROCESS_NAME'],
+                rows,
+                item['PLAN_DEPTH'],
+                item['RESCAN_TIMES'],
+                item['SVR_IP'],
+                otherstat,
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)
@@ -40,9 +48,19 @@ class GraphRendererMixin:
             rows = 0 if None == item['OUTPUT_ROWS'] else item['OUTPUT_ROWS']
             otherstat = self.detail_otherstat_explain(item)
             data = data + "{cpu:%f, io:%f, start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d, tag:'op', depth:%d, rescan:%d, svr_ip:'%s', otherstat:'%s'}," % (
-                item['MY_CPU_TIME'], item['MY_IO_TIME'], start, end, end - start,
-                item['PLAN_LINE_ID'], item['PLAN_OPERATION'], item['PROCESS_NAME'],
-                rows, item['PLAN_DEPTH'], item['RESCAN_TIMES'], item['SVR_IP'], otherstat,
+                item['MY_CPU_TIME'],
+                item['MY_IO_TIME'],
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PROCESS_NAME'],
+                rows,
+                item['PLAN_DEPTH'],
+                item['RESCAN_TIMES'],
+                item['SVR_IP'],
+                otherstat,
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)
@@ -63,8 +81,19 @@ class GraphRendererMixin:
             my_io_time = item['MY_IO_TIME']
             otherstat = "my_db_time:%f, my_cpu_time:%f, my_io_time:%f" % (item['MY_DB_TIME'], item['MY_CPU_TIME'], item['MY_IO_TIME'])
             data = data + "{cpu:%f,io:%f,start:%f, end:%f, diff:%f, my_io_time:%f, my_cpu_time:%f, opid:%s, op:'%s', est_rows:0, rows:%d, tag:'db_time', tid: %d, depth:%d, otherstat:'%s'}," % (
-                item['MY_CPU_TIME'], item['MY_IO_TIME'], start, end, diff,
-                my_io_time, my_cpu_time, op_id, op, rows, threads, depth, otherstat,
+                item['MY_CPU_TIME'],
+                item['MY_IO_TIME'],
+                start,
+                end,
+                diff,
+                my_io_time,
+                my_cpu_time,
+                op_id,
+                op,
+                rows,
+                threads,
+                depth,
+                otherstat,
             )
         data = data + "{start:0}];"
         data = data + "</script><p>%s</p><div class='bar' id='db_time_serial'></div>" % (title)
@@ -79,8 +108,16 @@ class GraphRendererMixin:
             est_rows = 0 if None == item['EST_ROWS'] else item['EST_ROWS']
             otherstat = self.dfo_otherstat_explain(item)
             data = data + "{start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d,est_rows:%d, tag:'dfo', depth:%d, otherstat:'%s'}," % (
-                start, end, end - start, item['PLAN_LINE_ID'], item['PLAN_OPERATION'],
-                item['PARALLEL'], rows, est_rows, item['PLAN_DEPTH'], otherstat,
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                rows,
+                est_rows,
+                item['PLAN_DEPTH'],
+                otherstat,
             )
         data = data + "{start:0}];"
         data = data + "</script><p>%s</p><div class='bar' id='agg_serial'></div>" % (title)
@@ -96,9 +133,19 @@ class GraphRendererMixin:
             est_rows = 0 if None == item['EST_ROWS'] else item['EST_ROWS']
             otherstat = self.dfo_otherstat_explain(item)
             data = data + "{cpu:%f,io:%f,start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d,est_rows:%d, tag:'dfo', depth:%d, otherstat:'%s', skewness:%.2f}," % (
-                item['MY_CPU_TIME'], item['MY_IO_TIME'], start, end, end - start,
-                item['PLAN_LINE_ID'], item['PLAN_OPERATION'], item['PARALLEL'],
-                rows, est_rows, item['PLAN_DEPTH'], otherstat, skewness,
+                item['MY_CPU_TIME'],
+                item['MY_IO_TIME'],
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                rows,
+                est_rows,
+                item['PLAN_DEPTH'],
+                otherstat,
+                skewness,
             )
         data = data + "{start:0}];"
         data = data + "</script><p>%s</p><div class='bar' id='agg_serial'></div>" % (title)
@@ -113,8 +160,16 @@ class GraphRendererMixin:
             est_rows = 0 if None == item['EST_ROWS'] else item['EST_ROWS']
             otherstat = self.dfo_otherstat_explain(item)
             data = data + "{start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d,est_rows:%d, tag:'dfo', depth:%d, otherstat:'%s'}," % (
-                start, end, end - start, item['PLAN_LINE_ID'], item['PLAN_OPERATION'],
-                item['PARALLEL'], rows, est_rows, item['PLAN_DEPTH'], otherstat,
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                rows,
+                est_rows,
+                item['PLAN_DEPTH'],
+                otherstat,
             )
         data = data + "{start:0}];"
         data = data + "</script><p>%s</p><div class='bar' id='agg_sched_serial'></div>" % (title)
@@ -130,9 +185,19 @@ class GraphRendererMixin:
             est_rows = 0 if None == item['EST_ROWS'] else item['EST_ROWS']
             otherstat = self.dfo_otherstat_explain(item)
             data = data + "{cpu:%f,io:%f,start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',rows:%d,est_rows:%d, tag:'dfo', depth:%d, otherstat:'%s', skewness:%.2f}," % (
-                item['MY_CPU_TIME'], item['MY_IO_TIME'], start, end, end - start,
-                item['PLAN_LINE_ID'], item['PLAN_OPERATION'], item['PARALLEL'],
-                rows, est_rows, item['PLAN_DEPTH'], otherstat, skewness,
+                item['MY_CPU_TIME'],
+                item['MY_IO_TIME'],
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                rows,
+                est_rows,
+                item['PLAN_DEPTH'],
+                otherstat,
+                skewness,
             )
         data = data + "{start:0}];"
         data = data + "</script><p>%s</p><div class='bar' id='agg_sched_serial'></div>" % (title)
@@ -145,9 +210,15 @@ class GraphRendererMixin:
             end = 0 if None == item['MAX_LAST_CHANGE_TS'] else item['MAX_LAST_CHANGE_TS']
             rows = 0 if None == item['TOTAL_OUTPUT_ROWS'] else item['TOTAL_OUTPUT_ROWS']
             data = data + "{start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',svr:'%s',rows:%d, tag:'sqc', depth:%d}," % (
-                start, end, end - start, item['PLAN_LINE_ID'], item['PLAN_OPERATION'],
-                item['PARALLEL'], item['SVR_IP'] + ':' + str(item['SVR_PORT']),
-                rows, item['PLAN_DEPTH'],
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                item['SVR_IP'] + ':' + str(item['SVR_PORT']),
+                rows,
+                item['PLAN_DEPTH'],
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)
@@ -162,10 +233,18 @@ class GraphRendererMixin:
             rows = 0 if None == item['TOTAL_OUTPUT_ROWS'] else item['TOTAL_OUTPUT_ROWS']
             skewness = 0 if None == item['SKEWNESS'] else item['SKEWNESS']
             data = data + "{cpu:%f,io:%f,start:%f, end:%f, diff:%f, opid:%s, op:'%s',tid:'%s',svr:'%s',rows:%d, tag:'sqc', depth:%d, skewness:%.2f}," % (
-                item['MY_CPU_TIME'], item['MY_IO_TIME'], start, end, end - start,
-                item['PLAN_LINE_ID'], item['PLAN_OPERATION'], item['PARALLEL'],
-                item['SVR_IP'] + ':' + str(item['SVR_PORT']), rows,
-                item['PLAN_DEPTH'], skewness,
+                item['MY_CPU_TIME'],
+                item['MY_IO_TIME'],
+                start,
+                end,
+                end - start,
+                item['PLAN_LINE_ID'],
+                item['PLAN_OPERATION'],
+                item['PARALLEL'],
+                item['SVR_IP'] + ':' + str(item['SVR_PORT']),
+                rows,
+                item['PLAN_DEPTH'],
+                skewness,
             )
         data = data + "{start:0}];</script>"
         data = data + "<p>%s</p><div class='bar' id='%s'></div>" % (title, ident)

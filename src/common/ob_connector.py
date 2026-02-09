@@ -27,16 +27,17 @@ class TableResult:
     Wrapper class to replace PrettyTable, providing compatible interface.
     Uses tabulate internally for table generation.
     """
+
     def __init__(self, field_names, rows):
         self.field_names = field_names
         self.rows = rows
         self._align = 'l'  # Default alignment
-    
+
     @property
     def align(self):
         """Get alignment setting"""
         return self._align
-    
+
     @align.setter
     def align(self, value):
         """Set alignment (for compatibility, stored but not used in HTML output)"""
@@ -45,13 +46,13 @@ class TableResult:
         else:
             # Set all fields to the same alignment
             self._align = value
-    
+
     def get_html_string(self):
         """Generate HTML table string using tabulate"""
         # Convert to HTML table format
         html_table = tabulate(self.rows, headers=self.field_names, tablefmt="html", showindex=False)
         return html_table
-    
+
     def __str__(self):
         """Generate plain text table string"""
         return tabulate(self.rows, headers=self.field_names, tablefmt="grid", showindex=False)

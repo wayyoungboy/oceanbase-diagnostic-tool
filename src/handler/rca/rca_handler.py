@@ -27,6 +27,7 @@ from src.common.command import (
     get_observer_version,
 )
 import traceback
+
 # Removed PrettyTable import - now using BaseHandler._generate_summary_table
 from src.common.ob_connector import OBConnector
 from src.common.ssh_client.ssh import SshClient
@@ -105,7 +106,7 @@ class RCAHandler(BaseHandler):
 
         # build report using BaseHandler template method
         base_store_dir = self._init_store_dir(default='./')
-        
+
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_rca_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
         store_dir = os.path.join(base_store_dir, target_dir)

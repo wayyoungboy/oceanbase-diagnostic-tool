@@ -250,7 +250,7 @@ class TimeUtils(object):
             return t
         temp = datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S.%f')
         return int(datetime.datetime.timestamp(temp) * 10**6)
-    
+
     @staticmethod
     def parse_since(since_str, to_timestamp, stdio=None):
         """Parse 'since' time string relative to to_timestamp."""
@@ -261,7 +261,7 @@ class TimeUtils(object):
             if stdio:
                 stdio.warn(f"Failed to parse since time '{since_str}': {e}")
             return to_timestamp - (30 * 60 * 1000000)  # Default: 30 minutes
-    
+
     @staticmethod
     def timestamp_to_str(timestamp, stdio=None):
         """Convert timestamp (microseconds) to datetime string."""

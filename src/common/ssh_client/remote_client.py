@@ -201,7 +201,7 @@ class RemoteClient(SsherClient):
                 self._sftp_client = None
         except Exception:
             pass
-        
+
         try:
             if self._ssh_fd:
                 self._ssh_fd.close()

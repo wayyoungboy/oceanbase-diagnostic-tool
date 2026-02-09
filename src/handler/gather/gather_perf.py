@@ -579,6 +579,6 @@ class GatherPerfHandler(BaseHandler):
 
             status = "Error: " + error_msg if is_err else "Completed"
             summary_tab.append((node, status, format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        
+
         # Use BaseHandler template method
         return self._generate_summary_table(field_names, summary_tab, "Gather Perf Summary")

@@ -19,6 +19,7 @@ import os
 import threading
 import time
 import datetime
+
 # Removed tabulate import - now using BaseHandler._generate_summary_table
 import requests
 from src.common.obdiag_exception import OBDIAGFormatException

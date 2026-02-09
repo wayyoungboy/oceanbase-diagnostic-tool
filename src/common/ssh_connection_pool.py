@@ -104,7 +104,7 @@ class SSHConnectionPool:
                 while self._pools[node_key]:
                     client = self._pools[node_key].popleft()
                     connection_id = self._get_connection_id(client)
-                    
+
                     # Health check: verify connection is still alive
                     if self._is_connection_alive(client):
                         # Update last used time

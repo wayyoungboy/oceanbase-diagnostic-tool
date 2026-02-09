@@ -21,28 +21,14 @@ from src.common.config_schema import validate_config, ValidationException
 
 class TestConfigSchema(unittest.TestCase):
     """Test cases for configuration schema validation"""
-    
+
     def test_valid_obcluster_config(self):
         """Test valid obcluster configuration"""
-        config = {
-            'obcluster': {
-                'db_host': '127.0.0.1',
-                'db_port': 2881,
-                'tenant_sys': {
-                    'user': 'root@sys',
-                    'password': 'password'
-                },
-                'servers': {
-                    'nodes': [
-                        {'ip': '192.168.1.1'}
-                    ]
-                }
-            }
-        }
-        
+        config = {'obcluster': {'db_host': '127.0.0.1', 'db_port': 2881, 'tenant_sys': {'user': 'root@sys', 'password': 'password'}, 'servers': {'nodes': [{'ip': '192.168.1.1'}]}}}
+
         errors = validate_config(config)
         self.assertEqual(len(errors), 0)
-    
+
     def test_missing_required_field(self):
         """Test missing required field"""
         config = {
@@ -51,29 +37,20 @@ class TestConfigSchema(unittest.TestCase):
                 # Missing db_port and tenant_sys
             }
         }
-        
+
         errors = validate_config(config)
         self.assertGreater(len(errors), 0)
         self.assertTrue(any('db_port' in e for e in errors))
         self.assertTrue(any('tenant_sys' in e for e in errors))
-    
+
     def test_invalid_db_port(self):
         """Test invalid db_port value"""
-        config = {
-            'obcluster': {
-                'db_host': '127.0.0.1',
-                'db_port': 99999,  # Invalid port
-                'tenant_sys': {
-                    'user': 'root@sys',
-                    'password': 'password'
-                }
-            }
-        }
-        
+        config = {'obcluster': {'db_host': '127.0.0.1', 'db_port': 99999, 'tenant_sys': {'user': 'root@sys', 'password': 'password'}}}  # Invalid port
+
         errors = validate_config(config)
         self.assertGreater(len(errors), 0)
         self.assertTrue(any('db_port' in e and '65535' in e for e in errors))
-    
+
     def test_missing_tenant_sys_credentials(self):
         """Test missing tenant_sys credentials"""
         config = {
@@ -82,14 +59,14 @@ class TestConfigSchema(unittest.TestCase):
                 'db_port': 2881,
                 'tenant_sys': {
                     # Missing user and password
-                }
+                },
             }
         }
-        
+
         errors = validate_config(config)
         self.assertGreater(len(errors), 0)
         self.assertTrue(any('user' in e for e in errors))
-    
+
     def test_strict_mode_raises_exception(self):
         """Test strict mode raises exception"""
         config = {
@@ -98,7 +75,7 @@ class TestConfigSchema(unittest.TestCase):
                 # Missing required fields
             }
         }
-        
+
         with self.assertRaises(ValidationException):
             validate_config(config, strict=True)
 

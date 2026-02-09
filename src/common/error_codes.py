@@ -57,7 +57,6 @@ ERROR_REGISTRY: Dict[str, Dict[str, any]] = {
             'Reduce concurrent operations',
         ],
     },
-    
     # ========== Configuration Errors (2000-2999) ==========
     'OBDIAG-2001': {
         'category': 'config',
@@ -83,7 +82,6 @@ ERROR_REGISTRY: Dict[str, Dict[str, any]] = {
             'Run "obdiag config check" for detailed validation',
         ],
     },
-    
     # ========== Execution Errors (3000-3999) ==========
     'OBDIAG-3001': {
         'category': 'execution',
@@ -110,7 +108,6 @@ ERROR_REGISTRY: Dict[str, Dict[str, any]] = {
             'Run with -v flag for verbose output',
         ],
     },
-    
     # ========== SQL Errors (4000-4999) ==========
     'OBDIAG-4001': {
         'category': 'sql',
@@ -129,7 +126,6 @@ ERROR_REGISTRY: Dict[str, Dict[str, any]] = {
             'Try increasing sql_timeout in configuration',
         ],
     },
-    
     # ========== File System Errors (5000-5999) ==========
     'OBDIAG-5001': {
         'category': 'filesystem',
@@ -153,10 +149,10 @@ ERROR_REGISTRY: Dict[str, Dict[str, any]] = {
 def get_error_info(error_code: str) -> Optional[Dict[str, any]]:
     """
     Get error information by error code.
-    
+
     Args:
         error_code: Error code (e.g., 'OBDIAG-1001')
-        
+
     Returns:
         Error information dictionary or None if not found
     """
@@ -166,18 +162,18 @@ def get_error_info(error_code: str) -> Optional[Dict[str, any]]:
 def format_error_message(error_code: str, **kwargs) -> str:
     """
     Format error message with context variables.
-    
+
     Args:
         error_code: Error code
         **kwargs: Context variables for message formatting
-        
+
     Returns:
         Formatted error message
     """
     error_info = get_error_info(error_code)
     if not error_info:
         return f"Unknown error: {error_code}"
-    
+
     message = error_info['message']
     try:
         return message.format(**kwargs)
@@ -188,15 +184,15 @@ def format_error_message(error_code: str, **kwargs) -> str:
 def get_error_suggestions(error_code: str) -> List[str]:
     """
     Get error suggestions by error code.
-    
+
     Args:
         error_code: Error code
-        
+
     Returns:
         List of suggestion strings
     """
     error_info = get_error_info(error_code)
     if not error_info:
         return []
-    
+
     return error_info.get('suggestion', [])

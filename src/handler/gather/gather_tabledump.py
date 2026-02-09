@@ -144,8 +144,7 @@ class GatherTableDumpHandler(BaseHandler):
     def __get_table_info(self):
         try:
             # Use parameterized query for tenant lookup
-            tenant_data = self.ob_connector.execute_sql(
-                "select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (self.tenant_name,))
+            tenant_data = self.ob_connector.execute_sql("select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (self.tenant_name,))
             if len(tenant_data) == 0:
                 self._log_error("tenant is None")
                 return

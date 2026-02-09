@@ -260,6 +260,7 @@ class ObdiagOriginCommand(BaseCommand):
         if no_color:
             # Disable colorama by resetting Fore/Style to empty strings
             import colorama
+
             colorama.init(strip=True)
 
     def start_check(self):

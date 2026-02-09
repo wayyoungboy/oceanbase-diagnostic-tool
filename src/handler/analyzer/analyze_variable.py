@@ -21,6 +21,7 @@ from src.common.tool import DirectoryUtil, TimeUtils, Util
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.ob_connector import OBConnector
 import csv
+
 # Removed PrettyTable import - now using BaseHandler._generate_summary_table
 import datetime
 from colorama import Fore, Style

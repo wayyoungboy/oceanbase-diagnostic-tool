@@ -801,6 +801,6 @@ class AnalyzeMemoryHandler(BaseHandler):
             consume_time = tup[3]
             pack_path = tup[4] if not is_err else None
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", "{0} s".format(consume_time), pack_path))
-        
+
         # Use BaseHandler template method
         return self._generate_summary_table(field_names, summary_tab, "Analyze Ob Log Summary")

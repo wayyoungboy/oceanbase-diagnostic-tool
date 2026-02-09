@@ -159,7 +159,7 @@ class GatherComponentLogHandler(BaseHandler):
 
         # Use BaseHandler template method for base directory
         base_store_dir = self._init_store_dir(default=self.store_dir)
-        
+
         if not self.is_scene:
             target_dir = "obdiag_gather_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
             self.store_dir = os.path.join(base_store_dir, target_dir)
@@ -230,7 +230,7 @@ class GatherComponentLogHandler(BaseHandler):
             original_from = self._get_option('from') if hasattr(self, '_get_option') else None
             original_to = self._get_option('to') if hasattr(self, '_get_option') else None
             original_since = self._get_option('since') if hasattr(self, '_get_option') else None
-            
+
             # Temporarily set options for template method
             if not hasattr(self, 'context') or not hasattr(self.context, 'options'):
                 # Fallback to manual calculation if context not available
@@ -434,13 +434,13 @@ class GatherComponentLogHandler(BaseHandler):
     def __get_overall_summary(self, node_summary_tuple):
         """Generate overall summary from all node summary tuples using BaseHandler template method"""
         self._log_verbose(f"node_summary_tuple: {node_summary_tuple}")
-        
+
         # Prepare data for template method
         headers = ["Node", "Status", "Size", "info"]
         rows = []
         for tup in node_summary_tuple:
             rows.append([tup["node"], tup["success"], tup["file_size"], tup["info"]])
-        
+
         # Use BaseHandler template method
         title = "Gather {0} Log Summary on {1}".format(self.target, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         return self._generate_summary_table(headers, rows, title)

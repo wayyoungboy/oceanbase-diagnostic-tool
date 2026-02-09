@@ -202,6 +202,7 @@ class ConfigManager(Manager):
                     self.stdio.warn(error_msg)
                 else:
                     import warnings
+
                     warnings.warn(error_msg)
 
     def update_config_data(self, new_config_data, save_to_file=False):

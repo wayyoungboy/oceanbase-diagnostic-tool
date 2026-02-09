@@ -36,6 +36,7 @@ try:
 except ImportError:
     try:
         import pyzipper
+
         _USE_PYZIPPER = True
     except ImportError:
         raise ImportError("Neither pyminizip nor pyzipper is available. Please install one of them.")
@@ -128,6 +129,7 @@ class FileUtil(object):
         try:
             # Deferred import to avoid circular dependency
             from src.common.utils.directory_util import DirectoryUtil
+
             if DirectoryUtil.rm(dst, stdio):
                 os.symlink(src, dst)
                 return True
@@ -154,6 +156,7 @@ class FileUtil(object):
         if dir_path:
             # Deferred import to avoid circular dependency
             from src.common.utils.directory_util import DirectoryUtil
+
             if DirectoryUtil.mkdir(dir_path, stdio=stdio):
                 return encoding_open(path, _type, encoding=encoding)
         else:

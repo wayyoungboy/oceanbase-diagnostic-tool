@@ -263,7 +263,7 @@ class BaseHandler(ABC):
     def _init_time_range(self):
         """
         Initialize time range from options (from/to/since → timestamp).
-        
+
         Sets:
             self.from_time: Start timestamp (microseconds)
             self.to_time: End timestamp (microseconds)
@@ -271,11 +271,11 @@ class BaseHandler(ABC):
             self.to_time_str: End time string
         """
         from src.common.tool import TimeUtils
-        
+
         from_opt = self._get_option('from')
         to_opt = self._get_option('to')
         since_opt = self._get_option('since')
-        
+
         if from_opt and to_opt:
             from_dt = TimeUtils.parse_time_str(from_opt)
             to_dt = TimeUtils.parse_time_str(to_opt)
@@ -300,48 +300,48 @@ class BaseHandler(ABC):
     def _init_store_dir(self, default: str = './') -> str:
         """
         Initialize store directory from options.
-        
+
         Args:
             default: Default directory path
-            
+
         Returns:
             Absolute path to store directory (created if not exists)
         """
         import os
-        
+
         store_dir = self._get_option('store_dir', default)
         store_dir = os.path.abspath(os.path.expanduser(store_dir))
-        
+
         if not os.path.exists(store_dir):
             self._log_warn(f'Directory {store_dir} does not exist, creating...')
             os.makedirs(store_dir, exist_ok=True)
-        
+
         return store_dir
 
     def _init_db_connector(self):
         """
         Initialize database connector from cluster config.
-        
+
         Returns:
             OBConnector instance
-            
+
         Raises:
             ConfigException: If cluster config or credentials not found
         """
         from src.common.ob_connector import OBConnector
         from src.common.exceptions import ConfigException
-        
+
         if not self.context:
             raise ConfigException("Handler context not available")
-        
+
         ob_cluster = self.context.cluster_config
         if not ob_cluster:
             raise ConfigException("OB cluster configuration not found")
-        
+
         tenant_sys = ob_cluster.get("tenant_sys", {})
         if not tenant_sys.get("user") or not tenant_sys.get("password"):
             raise ConfigException("Sys tenant credentials not configured")
-        
+
         return OBConnector(
             context=self.context,
             ip=ob_cluster.get("db_host"),
@@ -354,47 +354,47 @@ class BaseHandler(ABC):
     def _generate_summary_table(self, headers: list, rows: list, title: Optional[str] = None) -> str:
         """
         Generate summary table using tabulate.
-        
+
         Args:
             headers: Table headers
             rows: Table rows (list of tuples or lists)
             title: Optional title to display before table
-            
+
         Returns:
             Formatted table string (including title if provided)
         """
         from tabulate import tabulate
-        
+
         table_str = tabulate(rows, headers=headers, tablefmt="grid", showindex=False)
-        
+
         if title:
             result = f"\n{title}\n{table_str}"
             self._log_info(result)
         else:
             result = f"\n{table_str}"
             self._log_info(result)
-        
+
         return result
 
     def _iterate_nodes(self, nodes: list, callback):
         """
         Iterate over nodes with unified SSH connection management.
-        
+
         Args:
             nodes: List of node configuration dictionaries
             callback: Function(node, ssh_client) -> result
-            
+
         Returns:
             List of callback results
         """
         results = []
-        
+
         for node in nodes:
             ssh_client = self.get_ssh_connection(node)
             if ssh_client is None:
                 self._log_warn(f"SSH not available for node {node.get('ip', 'unknown')}, skipping")
                 continue
-            
+
             try:
                 result = callback(node, ssh_client)
                 results.append(result)
@@ -402,5 +402,5 @@ class BaseHandler(ABC):
                 self._log_error(f"Error on node {node.get('ip', 'unknown')}: {e}")
             finally:
                 self.return_ssh_connection(ssh_client)
-        
+
         return results

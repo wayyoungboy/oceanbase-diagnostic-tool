@@ -27,13 +27,12 @@ from src.common.obdiag_exception import OBDIAGDBConnException
 class OBConnectionPool:
     """
     Global OceanBase database connection pool.
-    
+
     This pool manages database connections to avoid creating new connections
     for each operation, improving performance and reducing overhead.
     """
 
-    def __init__(self, context, cluster_config: Dict, max_size: int = 10, 
-                 timeout: int = 30, health_check_interval: int = 60):
+    def __init__(self, context, cluster_config: Dict, max_size: int = 10, timeout: int = 30, health_check_interval: int = 60):
         """
         Initialize OB connection pool.
 
@@ -52,7 +51,7 @@ class OBConnectionPool:
         self._pool = queue.Queue(maxsize=max_size)
         self._lock = threading.Lock()
         self.stdio = context.stdio if context else None
-        
+
         # Initialize pool with connections
         self._initialize_pool()
 
@@ -64,12 +63,12 @@ class OBConnectionPool:
                 if self.stdio:
                     self.stdio.warn("Sys tenant credentials not configured, pool initialization skipped")
                 return
-            
+
             for i in range(self.max_size):
                 conn = self._create_connection()
                 if conn:
                     self._pool.put_nowait(conn)
-            
+
             if self.stdio:
                 self.stdio.verbose(f"OBConnectionPool initialized with {self._pool.qsize()} connections")
         except Exception as e:
@@ -126,10 +125,10 @@ class OBConnectionPool:
             OBDIAGDBConnException: If pool is exhausted or connection fails
         """
         timeout = timeout or self.timeout
-        
+
         try:
             conn = self._pool.get(timeout=timeout)
-            
+
             # Health check: verify connection is still alive
             if not self._health_check(conn):
                 # Connection is dead, create a new one
@@ -142,12 +141,10 @@ class OBConnectionPool:
                 conn = self._create_connection()
                 if conn is None:
                     raise OBDIAGDBConnException("Failed to create new connection after health check failure")
-            
+
             return conn
         except queue.Empty:
-            raise OBDIAGDBConnException(
-                f"Connection pool exhausted (max={self.max_size}, timeout={timeout}s)"
-            )
+            raise OBDIAGDBConnException(f"Connection pool exhausted (max={self.max_size}, timeout={timeout}s)")
         except Exception as e:
             raise OBDIAGDBConnException(f"Failed to get connection: {e}")
 
@@ -160,7 +157,7 @@ class OBConnectionPool:
         """
         if conn is None:
             return
-        
+
         try:
             # Health check before returning to pool
             if self._health_check(conn):

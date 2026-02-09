@@ -44,81 +44,105 @@ from src.common.ob_connector import OBConnector
 # ============================================================================
 _HANDLER_MAP = {
     # --- Gather ---
-    'gather_log':            ('src.handler.gather.gather_component_log', 'GatherComponentLogHandler'),
-    'gather_awr':            ('src.handler.gather.gather_awr', 'GatherAwrHandler'),
-    'gather_clog':           ('src.handler.gather.gather_obadmin', 'GatherObAdminHandler'),
-    'gather_slog':           ('src.handler.gather.gather_obadmin', 'GatherObAdminHandler'),
-    'gather_obstack':        ('src.handler.gather.gather_obstack2', 'GatherObstack2Handler'),
-    'gather_perf':           ('src.handler.gather.gather_perf', 'GatherPerfHandler'),
-    'gather_plan_monitor':   ('src.handler.gather.gather_plan_monitor', 'GatherPlanMonitorHandler'),
-    'gather_sysstat':        ('src.handler.gather.gather_sysstat', 'GatherOsInfoHandler'),
-    'gather_scenes_run':     ('src.handler.gather.gather_scenes', 'GatherSceneHandler'),
-    'gather_ash_report':     ('src.handler.gather.gather_ash_report', 'GatherAshReportHandler'),
-    'gather_tabledump':      ('src.handler.gather.gather_tabledump', 'GatherTableDumpHandler'),
-    'gather_parameters':     ('src.handler.gather.gather_parameters', 'GatherParametersHandler'),
-    'gather_variables':      ('src.handler.gather.gather_variables', 'GatherVariablesHandler'),
-    'gather_dbms_xplan':     ('src.handler.gather.gather_dbms_xplan', 'GatherDBMSXPLANHandler'),
-    'gather_core':           ('src.handler.gather.gather_core', 'GatherCoreHandler'),
+    'gather_log': ('src.handler.gather.gather_component_log', 'GatherComponentLogHandler'),
+    'gather_awr': ('src.handler.gather.gather_awr', 'GatherAwrHandler'),
+    'gather_clog': ('src.handler.gather.gather_obadmin', 'GatherObAdminHandler'),
+    'gather_slog': ('src.handler.gather.gather_obadmin', 'GatherObAdminHandler'),
+    'gather_obstack': ('src.handler.gather.gather_obstack2', 'GatherObstack2Handler'),
+    'gather_perf': ('src.handler.gather.gather_perf', 'GatherPerfHandler'),
+    'gather_plan_monitor': ('src.handler.gather.gather_plan_monitor', 'GatherPlanMonitorHandler'),
+    'gather_sysstat': ('src.handler.gather.gather_sysstat', 'GatherOsInfoHandler'),
+    'gather_scenes_run': ('src.handler.gather.gather_scenes', 'GatherSceneHandler'),
+    'gather_ash_report': ('src.handler.gather.gather_ash_report', 'GatherAshReportHandler'),
+    'gather_tabledump': ('src.handler.gather.gather_tabledump', 'GatherTableDumpHandler'),
+    'gather_parameters': ('src.handler.gather.gather_parameters', 'GatherParametersHandler'),
+    'gather_variables': ('src.handler.gather.gather_variables', 'GatherVariablesHandler'),
+    'gather_dbms_xplan': ('src.handler.gather.gather_dbms_xplan', 'GatherDBMSXPLANHandler'),
+    'gather_core': ('src.handler.gather.gather_core', 'GatherCoreHandler'),
     # --- Analyze ---
-    'analyze_log':           ('src.handler.analyzer.analyze_log', 'AnalyzeLogHandler'),
-    'analyze_log_offline':   ('src.handler.analyzer.analyze_log', 'AnalyzeLogHandler'),
-    'analyze_queue':         ('src.handler.analyzer.analyze_queue', 'AnalyzeQueueHandler'),
-    'analyze_flt_trace':     ('src.handler.analyzer.analyze_flt_trace', 'AnalyzeFltTraceHandler'),
+    'analyze_log': ('src.handler.analyzer.analyze_log', 'AnalyzeLogHandler'),
+    'analyze_log_offline': ('src.handler.analyzer.analyze_log', 'AnalyzeLogHandler'),
+    'analyze_queue': ('src.handler.analyzer.analyze_queue', 'AnalyzeQueueHandler'),
+    'analyze_flt_trace': ('src.handler.analyzer.analyze_flt_trace', 'AnalyzeFltTraceHandler'),
     'analyze_parameter_default': ('src.handler.analyzer.analyze_parameter', 'AnalyzeParameterHandler'),
-    'analyze_parameter_diff':    ('src.handler.analyzer.analyze_parameter', 'AnalyzeParameterHandler'),
-    'analyze_variable_diff':     ('src.handler.analyzer.analyze_variable', 'AnalyzeVariableHandler'),
-    'analyze_sql':           ('src.handler.analyzer.analyze_sql', 'AnalyzeSQLHandler'),
-    'analyze_sql_review':    ('src.handler.analyzer.analyze_sql_review', 'AnalyzeSQLReviewHandler'),
-    'analyze_index_space':   ('src.handler.analyzer.analyze_index_space', 'AnalyzeIndexSpaceHandler'),
-    'analyze_memory':        ('src.handler.analyzer.analyze_memory', 'AnalyzeMemoryHandler'),
+    'analyze_parameter_diff': ('src.handler.analyzer.analyze_parameter', 'AnalyzeParameterHandler'),
+    'analyze_variable_diff': ('src.handler.analyzer.analyze_variable', 'AnalyzeVariableHandler'),
+    'analyze_sql': ('src.handler.analyzer.analyze_sql', 'AnalyzeSQLHandler'),
+    'analyze_sql_review': ('src.handler.analyzer.analyze_sql_review', 'AnalyzeSQLReviewHandler'),
+    'analyze_index_space': ('src.handler.analyzer.analyze_index_space', 'AnalyzeIndexSpaceHandler'),
+    'analyze_memory': ('src.handler.analyzer.analyze_memory', 'AnalyzeMemoryHandler'),
     'analyze_memory_offline': ('src.handler.analyzer.analyze_memory', 'AnalyzeMemoryHandler'),
     # --- Check ---
-    'check':                 ('src.handler.check.check_handler', 'CheckHandler'),
-    'check_list':            ('src.handler.check.check_list', 'CheckListHandler'),
+    'check': ('src.handler.check.check_handler', 'CheckHandler'),
+    'check_list': ('src.handler.check.check_list', 'CheckListHandler'),
     # --- Display ---
-    'display_scenes_run':    ('src.handler.display.display_scenes', 'DisplaySceneHandler'),
-    'display_scenes_list':   ('src.handler.display.scenes.list', 'DisplayScenesListHandler'),
+    'display_scenes_run': ('src.handler.display.display_scenes', 'DisplaySceneHandler'),
+    'display_scenes_list': ('src.handler.display.scenes.list', 'DisplayScenesListHandler'),
     # --- RCA ---
-    'rca_run':               ('src.handler.rca.rca_handler', 'RCAHandler'),
-    'rca_list':              ('src.handler.rca.rca_list', 'RcaScenesListHandler'),
+    'rca_run': ('src.handler.rca.rca_handler', 'RCAHandler'),
+    'rca_list': ('src.handler.rca.rca_list', 'RcaScenesListHandler'),
     # --- Tools ---
-    'tool_crypto_config':    ('src.handler.tools.crypto_config_handler', 'CryptoConfigHandler'),
-    'tool_ai_assistant':     ('src.handler.ai.ai_assistant_handler', 'AiAssistantHandler'),
-    'tool_config_check':     ('src.handler.tools.config_check_handler', 'ConfigCheckHandler'),
-    'tool_io_performance':   ('src.handler.tools.io_performance_handler', 'IoPerformanceHandler'),
+    'tool_crypto_config': ('src.handler.tools.crypto_config_handler', 'CryptoConfigHandler'),
+    'tool_ai_assistant': ('src.handler.ai.ai_assistant_handler', 'AiAssistantHandler'),
+    'tool_config_check': ('src.handler.tools.config_check_handler', 'ConfigCheckHandler'),
+    'tool_io_performance': ('src.handler.tools.io_performance_handler', 'IoPerformanceHandler'),
     # --- Update ---
-    'update':                ('src.handler.update.update', 'UpdateHandler'),
+    'update': ('src.handler.update.update', 'UpdateHandler'),
     # --- Misc ---
-    'gather_scenes_list':    ('src.handler.gather.scenes.list', 'GatherScenesListHandler'),
+    'gather_scenes_list': ('src.handler.gather.scenes.list', 'GatherScenesListHandler'),
 }
 
 # Commands that need update_obcluster_nodes before execution
 _NEEDS_NODE_UPDATE = {
-    'gather_log', 'gather_awr', 'gather_clog', 'gather_slog', 'gather_obstack',
-    'gather_perf', 'gather_plan_monitor', 'gather_all', 'gather_sysstat',
-    'gather_scenes_run', 'gather_ash_report', 'gather_tabledump',
-    'gather_parameters', 'gather_variables', 'gather_dbms_xplan', 'gather_core',
-    'analyze_log', 'analyze_flt_trace', 'analyze_memory',
-    'check', 'display_scenes_run',
+    'gather_log',
+    'gather_awr',
+    'gather_clog',
+    'gather_slog',
+    'gather_obstack',
+    'gather_perf',
+    'gather_plan_monitor',
+    'gather_all',
+    'gather_sysstat',
+    'gather_scenes_run',
+    'gather_ash_report',
+    'gather_tabledump',
+    'gather_parameters',
+    'gather_variables',
+    'gather_dbms_xplan',
+    'gather_core',
+    'analyze_log',
+    'analyze_flt_trace',
+    'analyze_memory',
+    'check',
+    'display_scenes_run',
 }
 
 # Commands that skip cluster connection
 _SKIP_CLUSTER_CONN = {
-    'gather_obproxy_log', 'gather_oms_log',
-    'analyze_log_offline', 'analyze_parameter_diff', 'analyze_memory_offline',
+    'gather_obproxy_log',
+    'gather_oms_log',
+    'analyze_log_offline',
+    'analyze_parameter_diff',
+    'analyze_memory_offline',
     'tool_config_check',
 }
 
 # Commands that are offline (no config needed for context)
 _OFFLINE_COMMANDS = {
-    'check_list', 'rca_list', 'display_scenes_list', 'gather_scenes_list',
-    'update', 'tool_crypto_config', 'tool_ai_assistant',
+    'check_list',
+    'rca_list',
+    'display_scenes_list',
+    'gather_scenes_list',
+    'update',
+    'tool_crypto_config',
+    'tool_ai_assistant',
 }
 
 
 def _lazy_import(module_path, class_name):
     """Lazily import a handler class to avoid loading all handlers at startup."""
     import importlib
+
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
 
@@ -134,8 +158,7 @@ class ObdiagHome(object):
     - Backward-compatible API surface
     """
 
-    def __init__(self, stdio=None, config_path=os.path.expanduser('~/.obdiag/config.yml'),
-                 inner_config_change_map=None, custom_config_env_list=None, config_password=None):
+    def __init__(self, stdio=None, config_path=os.path.expanduser('~/.obdiag/config.yml'), inner_config_change_map=None, custom_config_env_list=None, config_password=None):
         self._optimize_manager = None
         self.stdio = None
         self._stdio_func = None
@@ -354,7 +377,8 @@ class ObdiagHome(object):
         options = self.context.options
         handler = self._create_handler('gather_log')
         handler.init(
-            self.context, target="obproxy",
+            self.context,
+            target="obproxy",
             from_option=Util.get_option(options, 'from'),
             to_option=Util.get_option(options, 'to'),
             since=Util.get_option(options, 'since'),
@@ -376,7 +400,8 @@ class ObdiagHome(object):
         options = self.context.options
         handler = self._create_handler('gather_log')
         handler.init(
-            self.context, target="oms",
+            self.context,
+            target="oms",
             from_option=Util.get_option(options, 'from'),
             to_option=Util.get_option(options, 'to'),
             since=Util.get_option(options, 'since'),
@@ -588,6 +613,7 @@ class ObdiagHome(object):
             return error_result
         self.set_offline_context('config', 'config')
         from src.common.config_helper import ConfigHelper
+
         config_helper = ConfigHelper(context=self.context)
         if Util.get_option(opt, 'file'):
             try:
@@ -637,31 +663,40 @@ class ObdiagHome(object):
 
     def set_context(self, handler_name, namespace, config):
         self.context = HandlerContext(
-            handler_name=handler_name, namespace=namespace,
+            handler_name=handler_name,
+            namespace=namespace,
             cluster_config=config.get_ob_cluster_config,
             obproxy_config=config.get_obproxy_config,
             ocp_config=config.get_ocp_config,
             oms_config=config.get_oms_config,
-            cmd=self.cmds, options=self.options, stdio=self.stdio,
+            cmd=self.cmds,
+            options=self.options,
+            stdio=self.stdio,
             inner_config=self.inner_config_manager.config,
         )
         telemetry.set_cluster_conn(self.context, config.get_ob_cluster_config)
 
     def set_context_skip_cluster_conn(self, handler_name, namespace, config):
         self.context = HandlerContext(
-            handler_name=handler_name, namespace=namespace,
+            handler_name=handler_name,
+            namespace=namespace,
             cluster_config=config.get_ob_cluster_config,
             obproxy_config=config.get_obproxy_config,
             ocp_config=config.get_ocp_config,
             oms_config=config.get_oms_config,
-            cmd=self.cmds, options=self.options, stdio=self.stdio,
+            cmd=self.cmds,
+            options=self.options,
+            stdio=self.stdio,
             inner_config=self.inner_config_manager.config,
         )
 
     def set_offline_context(self, handler_name, namespace):
         self.context = HandlerContext(
-            handler_name=handler_name, namespace=namespace,
-            cmd=self.cmds, options=self.options, stdio=self.stdio,
+            handler_name=handler_name,
+            namespace=namespace,
+            cmd=self.cmds,
+            options=self.options,
+            stdio=self.stdio,
             inner_config=self.inner_config_manager.config,
         )
 
@@ -686,8 +721,11 @@ class ObdiagHome(object):
             return
         ob_version = get_observer_version_by_sql(self.context, ob_cluster)
         obConnector = OBConnector(
-            context=self.context, ip=ob_cluster["db_host"], port=ob_cluster["db_port"],
-            username=ob_cluster["tenant_sys"]["user"], password=ob_cluster["tenant_sys"]["password"],
+            context=self.context,
+            ip=ob_cluster["db_host"],
+            port=ob_cluster["db_port"],
+            username=ob_cluster["tenant_sys"]["user"],
+            password=ob_cluster["tenant_sys"]["password"],
         )
         sql = "select SVR_IP, SVR_PORT, ZONE, BUILD_VERSION from oceanbase.__all_server"
         if ob_version.startswith(("1", "2", "3")):
@@ -717,9 +755,14 @@ class ObdiagHome(object):
 
     def call_plugin(self, plugin, spacename=None, target_servers=None, **kwargs):
         args = {
-            'namespace': spacename, 'namespaces': self.namespaces,
-            'cluster_config': None, 'obproxy_config': None, 'ocp_config': None,
-            'cmd': self.cmds, 'options': self.options, 'stdio': self.stdio,
+            'namespace': spacename,
+            'namespaces': self.namespaces,
+            'cluster_config': None,
+            'obproxy_config': None,
+            'ocp_config': None,
+            'cmd': self.cmds,
+            'options': self.options,
+            'stdio': self.stdio,
             'target_servers': target_servers,
         }
         args.update(kwargs)

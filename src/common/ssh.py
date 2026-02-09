@@ -19,11 +19,8 @@
 from __future__ import absolute_import, division, print_function
 
 import warnings
-warnings.warn(
-    "src.common.ssh is deprecated. Use src.common.ssh_client.ssh.SshClient instead.",
-    DeprecationWarning,
-    stacklevel=2
-)
+
+warnings.warn("src.common.ssh is deprecated. Use src.common.ssh_client.ssh.SshClient instead.", DeprecationWarning, stacklevel=2)
 
 import enum
 import getpass

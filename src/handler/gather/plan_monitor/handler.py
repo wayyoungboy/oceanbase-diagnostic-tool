@@ -189,8 +189,7 @@ class GatherPlanMonitorHandler(SQLBuilderMixin, GraphRendererMixin, StatProcesso
                     self.report_plan_explain(db_name, sql)
                     self.report_plan_cache(plan_explain_sql)
 
-                    display_cursor_sql = "SELECT DBMS_XPLAN.DISPLAY_CURSOR({plan_id}, 'all', '{svr_ip}',  {svr_port}, {tenant_id}) FROM DUAL".format(
-                        plan_id=plan_id, svr_ip=svr_ip, svr_port=svr_port, tenant_id=tenant_id)
+                    display_cursor_sql = "SELECT DBMS_XPLAN.DISPLAY_CURSOR({plan_id}, 'all', '{svr_ip}',  {svr_port}, {tenant_id}) FROM DUAL".format(plan_id=plan_id, svr_ip=svr_ip, svr_port=svr_port, tenant_id=tenant_id)
                     self.report_display_cursor_obversion4(display_cursor_sql)
                     self.report_schema(user_sql, tenant_name)
                     self.report_table_collation_check(user_sql, db_name)
@@ -359,6 +358,7 @@ class GatherPlanMonitorHandler(SQLBuilderMixin, GraphRendererMixin, StatProcesso
     def get_stat_stale_yes_tables(self, sql):
         try:
             from src.common.tool import SQLTableExtractor
+
             parser = SQLTableExtractor()
             parse_tables = parser.parse(sql)
             for t in parse_tables:
@@ -373,7 +373,9 @@ class GatherPlanMonitorHandler(SQLBuilderMixin, GraphRendererMixin, StatProcesso
             check_sql = """
                 SELECT IS_STALE FROM oceanbase.DBA_OB_TABLE_STAT_STALE_INFO
                 WHERE DATABASE_NAME = '{0}' AND TABLE_NAME = '{1}' limit 1
-            """.format(db, table)
+            """.format(
+                db, table
+            )
             try:
                 result = self.db_connector.execute_sql(check_sql)
                 is_stale = result[0][0] if result else 'NO'

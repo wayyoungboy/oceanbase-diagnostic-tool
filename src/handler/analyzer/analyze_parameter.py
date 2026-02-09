@@ -22,6 +22,7 @@ from src.common.tool import DirectoryUtil, TimeUtils, Util, StringUtils
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.ob_connector import OBConnector
 import csv
+
 # Removed PrettyTable import - now using BaseHandler._generate_summary_table
 import json
 import datetime
@@ -110,7 +111,7 @@ class AnalyzeParameterHandler(BaseHandler):
 
         # Use BaseHandler template method for base directory
         base_store_dir = self._init_store_dir(default=store_dir_option)
-        
+
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
         self.export_report_path = os.path.join(base_store_dir, target_dir)
@@ -134,7 +135,7 @@ class AnalyzeParameterHandler(BaseHandler):
         # Use BaseHandler template method for base directory
         store_dir_option = store_dir_option if store_dir_option and store_dir_option != "./" else "./"
         base_store_dir = self._init_store_dir(default=store_dir_option)
-        
+
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
         self.export_report_path = os.path.join(base_store_dir, target_dir)
@@ -414,7 +415,7 @@ order by 5,2,3,4,7'''
                 if self.stdio and self.stdio.silent and tenant_data["parameters"]:
                     structured_data.append(tenant_data)
 
-# File operations are now handled within the loop using 'with open'
+        # File operations are now handled within the loop using 'with open'
         if not is_empty:
             self._log_info("Analyze parameter diff finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
 

@@ -22,50 +22,47 @@ from src.common.exceptions import ConfigException, ValidationException
 def validate_config(config_data: Dict[str, Any], strict: bool = False) -> List[str]:
     """
     Validate configuration data against schema.
-    
+
     Args:
         config_data: Configuration dictionary to validate
         strict: If True, raise exception on validation failure; if False, return errors list
-        
+
     Returns:
         List of validation error messages (empty if valid)
-        
+
     Raises:
         ValidationException: If strict=True and validation fails
     """
     errors = []
-    
+
     # Validate obcluster section
     if 'obcluster' in config_data:
         errors.extend(_validate_obcluster(config_data['obcluster']))
-    
+
     # Validate obproxy section (optional)
     if 'obproxy' in config_data:
         errors.extend(_validate_obproxy(config_data['obproxy']))
-    
+
     # Validate ocp section (optional)
     if 'ocp' in config_data:
         errors.extend(_validate_ocp(config_data['ocp']))
-    
+
     if strict and errors:
-        raise ValidationException(
-            f"Configuration validation failed: {'; '.join(errors)}",
-            context={'errors': errors}
-        )
-    
+        raise ValidationException(f"Configuration validation failed: {'; '.join(errors)}", context={'errors': errors})
+
     return errors
 
 
 def _validate_obcluster(obcluster: Dict[str, Any]) -> List[str]:
     """Validate obcluster configuration."""
     errors = []
-    
+
     # Required fields
     required_fields = ['db_host', 'db_port', 'tenant_sys']
     for field in required_fields:
         if field not in obcluster:
             errors.append(f"obcluster.{field} is required")
-    
+
     # Validate db_port
     if 'db_port' in obcluster:
         try:
@@ -74,7 +71,7 @@ def _validate_obcluster(obcluster: Dict[str, Any]) -> List[str]:
                 errors.append(f"obcluster.db_port must be between 1 and 65535, got {port}")
         except (ValueError, TypeError):
             errors.append(f"obcluster.db_port must be an integer, got {obcluster['db_port']}")
-    
+
     # Validate tenant_sys
     if 'tenant_sys' in obcluster:
         tenant_sys = obcluster['tenant_sys']
@@ -85,7 +82,7 @@ def _validate_obcluster(obcluster: Dict[str, Any]) -> List[str]:
                 errors.append("obcluster.tenant_sys.user is required")
             if 'password' not in tenant_sys:
                 errors.append("obcluster.tenant_sys.password is required")
-    
+
     # Validate servers
     if 'servers' in obcluster:
         servers = obcluster['servers']
@@ -101,14 +98,14 @@ def _validate_obcluster(obcluster: Dict[str, Any]) -> List[str]:
                         errors.append(f"obcluster.servers.nodes[{i}] must be a dictionary")
                     elif 'ip' not in node or not node.get('ip'):
                         errors.append(f"obcluster.servers.nodes[{i}].ip is required")
-    
+
     return errors
 
 
 def _validate_obproxy(obproxy: Dict[str, Any]) -> List[str]:
     """Validate obproxy configuration."""
     errors = []
-    
+
     # servers is optional but if present, must be valid
     if 'servers' in obproxy:
         servers = obproxy['servers']
@@ -124,14 +121,14 @@ def _validate_obproxy(obproxy: Dict[str, Any]) -> List[str]:
                         errors.append(f"obproxy.servers.nodes[{i}] must be a dictionary")
                     elif 'ip' not in node or not node.get('ip'):
                         errors.append(f"obproxy.servers.nodes[{i}].ip is required")
-    
+
     return errors
 
 
 def _validate_ocp(ocp: Dict[str, Any]) -> List[str]:
     """Validate OCP configuration."""
     errors = []
-    
+
     if 'login' in ocp:
         login = ocp['login']
         if not isinstance(login, dict):
@@ -143,5 +140,5 @@ def _validate_ocp(ocp: Dict[str, Any]) -> List[str]:
                 errors.append("ocp.login.user is required")
             if 'password' not in login:
                 errors.append("ocp.login.password is required")
-    
+
     return errors

@@ -18,6 +18,7 @@
 
 
 from src.common.base_handler import BaseHandler
+
 # Removed PrettyTable import - now using BaseHandler._generate_summary_table
 from src.common.tool import StringUtils, Util
 from src.common.ob_connector import OBConnector
@@ -64,8 +65,7 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
         index_name = self._get_option('index_name')
         column_names = self._get_option('column_names')
         # get tenant id (parameterized)
-        tenant_data = self.sys_connector.execute_sql(
-            "select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (tenant_name,))
+        tenant_data = self.sys_connector.execute_sql("select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (tenant_name,))
         if len(tenant_data) == 0:
             raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
         self.tenant_id = tenant_data[0][0]
@@ -73,9 +73,7 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
             raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
         # get database id if database_name is provided (parameterized)
         if database_name is not None:
-            database_id_data = self.sys_connector.execute_sql(
-                "select database_id from oceanbase.__all_virtual_database where database_name = %s and tenant_id = %s",
-                (database_name, self.tenant_id))
+            database_id_data = self.sys_connector.execute_sql("select database_id from oceanbase.__all_virtual_database where database_name = %s and tenant_id = %s", (database_name, self.tenant_id))
             if len(database_id_data) == 0:
                 raise Exception(f"can not find database id by database name: {database_name}. Please check the database name.")
             self.database_id = database_id_data[0][0]
@@ -84,13 +82,9 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
             self._log_verbose(f"database_id is {self.database_id}")
         # get table id (parameterized)
         if database_name is not None:
-            table_id_data = self.sys_connector.execute_sql(
-                "select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s and database_id = %s",
-                (table_name, self.tenant_id, self.database_id))
+            table_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s and database_id = %s", (table_name, self.tenant_id, self.database_id))
         else:
-            table_id_data = self.sys_connector.execute_sql(
-                "select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s",
-                (table_name, self.tenant_id))
+            table_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s", (table_name, self.tenant_id))
         if len(table_id_data) == 0:
             if database_name is not None:
                 raise Exception(f"can not find table id by table name: {table_name} and database name: {database_name}. Please check the table name and database name.")
@@ -110,9 +104,7 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
         # get index id (parameterized)
         if index_name is not None:
             like_pattern = f"%{index_name}%"
-            index_id_data = self.sys_connector.execute_sql(
-                "select table_id from oceanbase.__all_virtual_table where table_name like %s and data_table_id = %s and tenant_id = %s",
-                (like_pattern, self.table_id, self.tenant_id))
+            index_id_data = self.sys_connector.execute_sql("select table_id from oceanbase.__all_virtual_table where table_name like %s and data_table_id = %s and tenant_id = %s", (like_pattern, self.table_id, self.tenant_id))
             if len(index_id_data) == 0:
                 raise Exception(f"can not find index id by index name: {index_name}. Please check the index name.")
             self.index_id = index_id_data[0][0]
