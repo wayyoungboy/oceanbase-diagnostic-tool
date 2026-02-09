@@ -1062,6 +1062,29 @@ class TimeUtils(object):
         return format_time
 
     @staticmethod
+    def parse_since(since_str, to_timestamp, stdio=None):
+        """Parse 'since' time string relative to to_timestamp."""
+        try:
+            seconds = TimeUtils.parse_time_sec(since_str)
+            return to_timestamp - (seconds * 1000000)  # Convert to microseconds
+        except Exception as e:
+            if stdio:
+                stdio.warn(f"Failed to parse since time '{since_str}': {e}")
+            return to_timestamp - (30 * 60 * 1000000)  # Default: 30 minutes
+
+    @staticmethod
+    def timestamp_to_str(timestamp, stdio=None):
+        """Convert timestamp (microseconds) to datetime string."""
+        try:
+            second_timestamp = timestamp / 1000000
+            dt = datetime.datetime.fromtimestamp(second_timestamp)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            if stdio:
+                stdio.warn(f"Failed to convert timestamp {timestamp}: {e}")
+            return ""
+
+    @staticmethod
     def filename_time_to_datetime(filename_time, stdio=None):
         """transform yyyymmddhhmmss to yyyy-mm-dd hh:mm:ss"""
         if filename_time != "":

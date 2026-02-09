@@ -56,6 +56,9 @@ class CheckHandler(BaseHandler):
         self.export_report_type = self.config.check_report_type
         self.ignore_version = self.config.check_ignore_version
 
+        # Initialize export_report_path with default from config (will be updated in handle() if store_dir option is provided)
+        self.export_report_path = self.config.check_report_path
+
         self.cluster = self.context.cluster_config
         self.check_target_type = check_target_type
 

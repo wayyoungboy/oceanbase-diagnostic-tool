@@ -59,7 +59,7 @@ class OBConnectionPool:
         """Initialize pool with initial connections."""
         try:
             tenant_sys = self.cluster_config.get("tenant_sys", {})
-            if not tenant_sys.get("user") or not tenant_sys.get("password"):
+            if not tenant_sys.get("user"):
                 if self.stdio:
                     self.stdio.warn("Sys tenant credentials not configured, pool initialization skipped")
                 return

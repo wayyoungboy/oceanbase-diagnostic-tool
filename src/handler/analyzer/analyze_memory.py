@@ -55,13 +55,14 @@ class AnalyzeMemoryHandler(BaseHandler):
 
         # Initialize config
         self.nodes = self.context.cluster_config['servers']
+        # Initialize file limits as instance variables (not properties)
         if self.context.inner_config is None:
-            self.file_number_limit = 20
-            self.file_size_limit = 2 * 1024 * 1024 * 1024
+            self._file_number_limit = 20
+            self._file_size_limit = 2 * 1024 * 1024 * 1024
         else:
             basic_config = self.context.inner_config['obdiag']['basic']
-            self.file_number_limit = int(basic_config["file_number_limit"])
-            self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
+            self._file_number_limit = int(basic_config["file_number_limit"])
+            self._file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
             self.config_path = basic_config['config_path']
 
         # Initialize options
@@ -477,12 +478,12 @@ class AnalyzeMemoryHandler(BaseHandler):
             log_list = self.__get_log_name_list_offline()
         else:
             log_list = self.__get_log_name_list(ssh_client, node)
-        if len(log_list) > self.file_number_limit:
-            self.stdio.warn("{0} The number of log files is {1}, out of range (0,{2}]".format(node.get("ip"), len(log_list), self.file_number_limit))
+        if len(log_list) > self._file_number_limit:
+            self.stdio.warn("{0} The number of log files is {1}, out of range (0,{2}]".format(node.get("ip"), len(log_list), self._file_number_limit))
             resp["skip"] = (True,)
-            resp["error"] = "Too many files {0} > {1}, Please adjust the analyze time range".format(len(log_list), self.file_number_limit)
+            resp["error"] = "Too many files {0} > {1}, Please adjust the analyze time range".format(len(log_list), self._file_number_limit)
             if self.directly_analyze_files:
-                resp["error"] = "Too many files {0} > {1}, " "Please adjust the number of incoming files".format(len(log_list), self.file_number_limit)
+                resp["error"] = "Too many files {0} > {1}, " "Please adjust the number of incoming files".format(len(log_list), self._file_number_limit)
             return log_list, resp
         elif len(log_list) == 0:
             self._log_warn(f"{node.get('ip')} The number of observer.log*  files is {len(log_list)}, No files found")

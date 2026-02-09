@@ -42,9 +42,9 @@ Thumbs.db
 
 # === Project specific ===
 dependencies/bin/obstack*
-obdiag_gather_pack_*
+obdiag_gather_*
 obdiag_analyze_pack_*
-obdiag_rca*
+obdiag_*
 
 # === Dev docs (internal refactoring notes, not for release) ===
 dev_docs/

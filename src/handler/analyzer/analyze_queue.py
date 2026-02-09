@@ -76,20 +76,21 @@ class AnalyzeQueueHandler(BaseHandler):
         # Initialize config
         self.nodes = self.context.cluster_config['servers']
 
+        # Initialize file limits as instance variables (not properties)
         # Use ConfigAccessor if available
         if self.config:
-            self.file_number_limit = self.config.gather_file_number_limit
-            self.file_size_limit = self.config.gather_file_size_limit
+            self._file_number_limit = self.config.gather_file_number_limit
+            self._file_size_limit = self.config.gather_file_size_limit
             self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
-                self.file_number_limit = 20
-                self.file_size_limit = 2 * 1024 * 1024 * 1024
+                self._file_number_limit = 20
+                self._file_size_limit = 2 * 1024 * 1024 * 1024
             else:
                 basic_config = self.context.inner_config['obdiag']['basic']
-                self.file_number_limit = int(basic_config["file_number_limit"])
-                self.file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
+                self._file_number_limit = int(basic_config["file_number_limit"])
+                self._file_size_limit = int(FileUtil.size(basic_config["file_size_limit"]))
                 self.config_path = basic_config['config_path']
 
         # Initialize options
@@ -302,8 +303,8 @@ class AnalyzeQueueHandler(BaseHandler):
             log_list = self.__get_log_name_list_offline()
         else:
             log_list = self.__get_log_name_list(ssh_client, node)
-        if len(log_list) > self.file_number_limit:
-            self._log_warn(f"{node.get('ip')} The number of log files is {len(log_list)}, out of range (0,{self.file_number_limit}]")
+        if len(log_list) > self._file_number_limit:
+            self._log_warn(f"{node.get('ip')} The number of log files is {len(log_list)}, out of range (0,{self._file_number_limit}]")
             return log_list
         elif len(log_list) == 0:
             self._log_warn(f"{node.get('ip')} The number of log files is {len(log_list)}, No files found, Please adjust the query limit")

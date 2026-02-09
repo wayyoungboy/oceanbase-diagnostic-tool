@@ -93,6 +93,11 @@ class GatherComponentLogHandler(BaseHandler):
         except (ValueError, TypeError):
             self.recent_count = 0
 
+        # Initialize file limits as instance variables (not properties)
+        # These will be set in __check_inner_config()
+        self._file_number_limit = None
+        self._file_size_limit = None
+
         # Initialize result
         self.result = ObdiagResult(ObdiagResult.SUCCESS_CODE, data={})
 
@@ -108,8 +113,8 @@ class GatherComponentLogHandler(BaseHandler):
                 "store_dir": self.store_dir,
                 "from_time": self.from_time_str,
                 "to_time": self.to_time_str,
-                "file_number_limit": self.file_number_limit,
-                "file_size_limit": self.file_size_limit,
+                "file_number_limit": self._file_number_limit,
+                "file_size_limit": self._file_size_limit,
                 "oms_component_id": self.oms_component_id,
                 "recent_count": self.recent_count,
             }
@@ -278,26 +283,26 @@ class GatherComponentLogHandler(BaseHandler):
         """Load configuration from inner_config"""
         # Use ConfigAccessor if available
         if self.config:
-            self.file_number_limit = self.config.gather_file_number_limit
-            self.file_size_limit = self.config.gather_file_size_limit
+            self._file_number_limit = self.config.gather_file_number_limit
+            self._file_size_limit = self.config.gather_file_size_limit
             self.config_path = self.config.basic_config_path
         else:
             # Fallback to direct config access
             if self.context.inner_config is None:
-                self.file_number_limit = self.DEFAULT_FILE_NUMBER_LIMIT
-                self.file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
+                self._file_number_limit = self.DEFAULT_FILE_NUMBER_LIMIT
+                self._file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
                 self.config_path = None
             else:
                 basic_config = self.context.inner_config.get('obdiag', {}).get('basic', {})
-                self.file_number_limit = int(basic_config.get("file_number_limit", self.DEFAULT_FILE_NUMBER_LIMIT))
+                self._file_number_limit = int(basic_config.get("file_number_limit", self.DEFAULT_FILE_NUMBER_LIMIT))
                 file_size_limit_str = basic_config.get("file_size_limit")
                 if file_size_limit_str:
-                    self.file_size_limit = int(FileUtil.size(file_size_limit_str))
+                    self._file_size_limit = int(FileUtil.size(file_size_limit_str))
                 else:
-                    self.file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
+                    self._file_size_limit = self.DEFAULT_FILE_SIZE_LIMIT
                 self.config_path = basic_config.get('config_path')
 
-        self._log_verbose(f"file_number_limit: {self.file_number_limit}, file_size_limit: {self.file_size_limit}")
+        self._log_verbose(f"file_number_limit: {self._file_number_limit}, file_size_limit: {self._file_size_limit}")
 
     def __check_thread_nums(self):
         """Validate thread_nums option"""
