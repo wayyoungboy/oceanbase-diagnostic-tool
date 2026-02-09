@@ -27,7 +27,7 @@ from src.common.command import get_observer_version
 from src.common.tool import Util
 from pathlib import Path
 from src.common.tool import TimeUtils
-from tabulate import tabulate
+# Removed tabulate import - now using BaseHandler._generate_summary_table
 from src.common.command import get_file_size, download_file, delete_file_force
 from src.common.ssh_client.ssh import SshClient
 from src.common.tool import DirectoryUtil
@@ -401,8 +401,12 @@ class GatherDBMSXPLANHandler(BaseHandler):
     def __build_find_latest_log_cmd(self, log_path, suffix):
         return f"find \"{log_path}\" -type f -name \"*{suffix}.trac\" "
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple):
+    def __get_overall_summary(self, node_summary_tuple):
+        """
+        Generate overall summary from gather tuples using BaseHandler template method.
+        :param node_summary_tuple: List of tuples (node, is_err, error_msg, file_size, consume_time, pack_path)
+        :return: Formatted summary table string
+        """
         summary_tab = []
         field_names = ["Node", "Status", "Size", "Time", "PackPath"]
         for tup in node_summary_tuple:
@@ -413,7 +417,9 @@ class GatherDBMSXPLANHandler(BaseHandler):
             pack_path = tup[5]
             try:
                 format_file_size = FileUtil.size_format(num=file_size, output_str=True)
-            except:
+            except Exception as e:
+                self._log_verbose("Failed to format file size {0}: {1}".format(file_size, e))
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        return "\nGather dbms_xplan.enable_opt_trace:\n" + tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        # Use BaseHandler template method
+        return self._generate_summary_table(field_names, summary_tab, "Gather dbms_xplan.enable_opt_trace")

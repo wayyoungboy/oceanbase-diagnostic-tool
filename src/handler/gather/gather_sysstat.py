@@ -19,7 +19,7 @@ import os
 import time
 import datetime
 
-import tabulate
+# Removed tabulate import - now using BaseHandler._generate_summary_table
 from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.ssh_client.ssh import SshClient
@@ -248,8 +248,12 @@ class GatherOsInfoHandler(BaseHandler):
         except Exception as e:
             self._log_error(f"Failed to gather tcp and udp info use tsar on server {ssh_client.get_name()}: {e}")
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple):
+    def __get_overall_summary(self, node_summary_tuple):
+        """
+        Generate overall summary from gather tuples using BaseHandler template method.
+        :param node_summary_tuple: List of tuples (node, is_err, error_msg, file_size, consume_time, pack_path)
+        :return: Formatted summary table string
+        """
         summary_tab = []
         field_names = ["Node", "Status", "Size", "Time", "PackPath"]
         for tup in node_summary_tuple:
@@ -264,4 +268,5 @@ class GatherOsInfoHandler(BaseHandler):
                 self._log_verbose("Failed to format file size {0}: {1}".format(file_size, e))
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        return "\nGather Sysstat Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        # Use BaseHandler template method
+        return self._generate_summary_table(field_names, summary_tab, "Gather Sysstat Summary")

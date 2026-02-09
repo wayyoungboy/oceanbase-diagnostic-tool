@@ -787,21 +787,20 @@ class AnalyzeMemoryHandler(BaseHandler):
             time_str = log_line[1 : log_line.find(']')]
         return time_str
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple):
+    def __get_overall_summary(self, node_summary_tuple):
         """
-        generate overall summary from all node summary tuples
+        Generate overall summary from all node summary tuples using BaseHandler template method.
         :param node_summary_tuple: (node, is_err, err_msg, size, consume_time, node_summary) for each node
         :return: a string indicating the overall summary
         """
         summary_tab = []
-        field_names = ["Node", "Status"]
-        field_names.append("Time")
-        field_names.append("ResultPath")
+        field_names = ["Node", "Status", "Time", "ResultPath"]
         for tup in node_summary_tuple:
             node = tup[0]
             is_err = tup[2]
             consume_time = tup[3]
             pack_path = tup[4] if not is_err else None
             summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", "{0} s".format(consume_time), pack_path))
-        return "\nAnalyze Ob Log Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        
+        # Use BaseHandler template method
+        return self._generate_summary_table(field_names, summary_tab, "Analyze Ob Log Summary")

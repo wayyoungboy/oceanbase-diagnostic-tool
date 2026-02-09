@@ -17,7 +17,8 @@
 """
 from src.common.stdio import SafeStdio
 from src.common.tool import StringUtils
-from prettytable import PrettyTable
+# Note: StepSQLHandler does not inherit BaseHandler, so using tabulate for consistency
+from tabulate import tabulate
 
 
 class StepSQLHandler(SafeStdio):
@@ -58,19 +59,16 @@ class StepSQLHandler(SafeStdio):
             columns, data = self.db_connector.execute_sql_return_columns_and_data(sql)
             if data is None or len(data) == 0:
                 self.stdio.verbose("excute sql: {0},  result is None".format(sql))
-            table = PrettyTable(columns)
-            for row in data:
-                table.add_row(row)
-            for column in columns:
-                table.align[column] = 'l'
+            # Use tabulate for consistency (StepSQLHandler does not inherit BaseHandler)
+            table_str = tabulate(data, headers=columns, tablefmt="grid", showindex=False)
             title = self.step.get("tittle")
             if title is not None:
                 title = StringUtils.replace_parameters(title, self.env)
                 formatted_title = f"\n[obdiag display]: {title} "
                 self.stdio.print(formatted_title)
                 data = "{0}\n{1}".format(data, formatted_title)
-            self.stdio.print(table)
-            data = "{0}\n{1}".format(data, table)
+            self.stdio.print(table_str)
+            data = "{0}\n{1}".format(data, table_str)
             return data
         except Exception as e:
             self.stdio.error("StepSQLHandler execute Exception: {0}".format(e).strip())

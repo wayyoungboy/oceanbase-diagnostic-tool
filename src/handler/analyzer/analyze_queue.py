@@ -144,21 +144,16 @@ class AnalyzeQueueHandler(BaseHandler):
             if not self.directly_analyze_files:
                 self._log_info(f'analyze log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
         else:
-            self._log_info('No time option provided, default processing is based on the last 30 minutes')
-            now_time = datetime.datetime.now()
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime('%Y-%m-%d %H:%M:%S')
-            if since_option is not None:
-                self.from_time_str = (now_time - datetime.timedelta(seconds=TimeUtils.parse_time_length_to_sec(since_option))).strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                self.from_time_str = (now_time - datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+            # Use BaseHandler template method for time range initialization
+            self._init_time_range()
+            self.from_time_str = TimeUtils.timestamp_to_str(self.from_time)
+            self.to_time_str = TimeUtils.timestamp_to_str(self.to_time)
             if not self.directly_analyze_files:
                 self._log_info(f'analyze log from_time: {self.from_time_str}, to_time: {self.to_time_str}')
 
         if store_dir_option is not None:
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.gather_pack_dir = os.path.abspath(store_dir_option)
+            # Use BaseHandler template method for store directory initialization
+            self.gather_pack_dir = self._init_store_dir(default=store_dir_option)
 
     def get_version(self):
         observer_version = ""

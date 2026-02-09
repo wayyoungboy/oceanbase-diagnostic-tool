@@ -25,7 +25,7 @@ from src.common.tool import NetUtils
 from src.common.tool import StringUtils
 from src.common.tool import Util
 from src.common.version import OBDIAG_VERSION
-import yaml
+import oyaml as yaml
 
 from src.common.result_type import ObdiagResult
 

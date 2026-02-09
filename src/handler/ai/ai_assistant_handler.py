@@ -18,7 +18,7 @@
 
 import os
 import json
-import yaml
+import oyaml as yaml
 from typing import Dict, List, Optional
 
 from src.common.base_handler import BaseHandler

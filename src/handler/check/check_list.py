@@ -17,7 +17,7 @@
 """
 
 import os
-import yaml
+import oyaml as yaml
 
 from src.common.base_handler import BaseHandler
 from src.common.result_type import ObdiagResult
@@ -48,7 +48,7 @@ class CheckListHandler(BaseHandler):
                     cases_map = {"all": {"name": "all", "command": "obdiag check run", "info_en": "default check all task without filter", "info_cn": "默认执行除filter组里的所有巡检项"}}
                     # Parse package file name
                     parts = file.split('_')
-                    if len(parts) < 1:
+                    if len(parts) < 2:
                         self._log_warn(f"Invalid check package name: {file}, " "Please don't add file which 'check_package' in the name")
                         continue
 

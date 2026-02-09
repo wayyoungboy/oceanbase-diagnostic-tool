@@ -18,18 +18,17 @@ import signal
 import sys
 import fcntl
 import traceback
-import inspect2
-import six
+import inspect
 import logging
 from logging import handlers
 
 from enum import Enum
 from halo import Halo, cursor
 from colorama import Fore
-from prettytable import PrettyTable
+from tabulate import tabulate as _tabulate
 from progressbar import AdaptiveETA, Bar, SimpleProgress, ETA, FileTransferSpeed, Percentage, ProgressBar
 from types import MethodType
-from inspect2 import Parameter
+from inspect import Parameter
 
 from src.common.log import Logger
 
@@ -218,36 +217,22 @@ class LogSymbols(Enum):
     ERROR = FormtatText.error('x')
 
 
-class IOTable(PrettyTable):
+class IOTable:
+    """Lightweight table wrapper using tabulate (replaces PrettyTable dependency)."""
 
-    @property
-    def align(self):
-        """Controls alignment of fields
-        Arguments:
+    def __init__(self, field_names=None, **kwargs):
+        self._field_names = field_names or []
+        self._rows = []
+        self._title = kwargs.get("title", "")
 
-        align - alignment, one of "l", "c", or "r" """
-        return self._align
+    def add_row(self, row):
+        self._rows.append(row)
 
-    @align.setter
-    def align(self, val):
-        if not self._field_names:
-            self._align = {}
-        elif isinstance(val, dict):
-            val_map = val
-            for field in self._field_names:
-                if field in val_map:
-                    val = val_map[field]
-                    self._validate_align(val)
-                else:
-                    val = 'l'
-                self._align[field] = val
-        else:
-            if val:
-                self._validate_align(val)
-            else:
-                val = 'l'
-            for field in self._field_names:
-                self._align[field] = val
+    def __str__(self):
+        header = ""
+        if self._title:
+            header = self._title + "\n"
+        return header + _tabulate(self._rows, headers=self._field_names, tablefmt="grid")
 
 
 class IOHalo(Halo):
@@ -960,7 +945,7 @@ def safe_stdio_decorator(default_stdio=None):
             is_bond_method = True
             _type = type(func)
             func = func.__func__
-        all_parameters = inspect2.signature(func).parameters
+        all_parameters = inspect.signature(func).parameters
         if "stdio" in all_parameters:
             default_stdio_in_params = all_parameters["stdio"].default
             if not isinstance(default_stdio_in_params, Parameter.empty):
@@ -1020,7 +1005,7 @@ class _StayTheSame(object):
 STAY_THE_SAME = _StayTheSame()
 
 
-class SafeStdio(six.with_metaclass(SafeStdioMeta)):
+class SafeStdio(metaclass=SafeStdioMeta):
     _wrapper_func = {}
 
     def __getattribute__(self, item):
@@ -1028,7 +1013,7 @@ class SafeStdio(six.with_metaclass(SafeStdioMeta)):
         if item not in _wrapper_func:
             attr = super(SafeStdio, self).__getattribute__(item)
             if (not item.startswith("__") or not item.endswith("__")) and isinstance(attr, MethodType):
-                if "stdio" in inspect2.signature(attr).parameters:
+                if "stdio" in inspect.signature(attr).parameters:
                     _wrapper_func[item] = safe_stdio_decorator(default_stdio=getattr(self, "stdio", None))(attr)
                     return _wrapper_func[item]
             _wrapper_func[item] = STAY_THE_SAME

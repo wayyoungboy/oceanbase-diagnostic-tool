@@ -20,7 +20,7 @@ import os
 import queue
 import traceback
 import re
-import yaml
+import oyaml as yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
@@ -120,11 +120,19 @@ class CheckHandler(BaseHandler):
         # Get version and setup connection pool
         if self._get_option('cases') != "build_before":
             self.version = get_version_by_type(self.context, self.check_target_type, self.stdio)
+            # Use global OBConnectionPool instead of CheckOBConnectorPool
+            from src.common.ob_connection_pool import OBConnectionPool
+            
             obConnectorPool = None
             try:
                 # Connection pool size matches max_workers for optimal concurrency
                 pool_size = min(self.max_workers, 12)  # max 12 connections to avoid overloading DB
-                obConnectorPool = CheckOBConnectorPool(self.context, pool_size, self.cluster)
+                obConnectorPool = OBConnectionPool(
+                    context=self.context,
+                    cluster_config=self.cluster,
+                    max_size=pool_size,
+                    timeout=30
+                )
             except Exception as e:
                 self._log_warn(f"obConnector init error. Error info is {e}")
             finally:
@@ -152,24 +160,18 @@ class CheckHandler(BaseHandler):
                 self._log_info("when cases is build_before, not check obproxy")
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "obproxy check skipped"})
 
-            # Update export_report_path from options
-            store_dir = self._get_option('store_dir')
-            if store_dir:
-                self.export_report_path = os.path.expanduser(store_dir)
-                self._log_verbose(f"export_report_path change to {self.export_report_path}")
-            else:
-                # Default to current directory if not specified
-                self.export_report_path = "./"
-
-            if not os.path.exists(self.export_report_path):
-                self._log_warn(f"{self.export_report_path} not exists. mkdir it!")
-                os.makedirs(self.export_report_path, exist_ok=True)
-
+            # Update export_report_path from options using BaseHandler template method
+            base_store_dir = self._get_option('store_dir', default='./')
+            base_store_dir = os.path.abspath(os.path.expanduser(base_store_dir))
+            
             # Create timestamped subdirectory similar to gather
             target_dir = "obdiag_check_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
-            self.export_report_path = os.path.join(self.export_report_path, target_dir)
+            self.export_report_path = os.path.join(base_store_dir, target_dir)
+            
+            # Use BaseHandler template method to ensure directory exists
             if not os.path.exists(self.export_report_path):
                 os.makedirs(self.export_report_path, exist_ok=True)
+            self._log_verbose(f"export_report_path: {self.export_report_path}")
 
             # Change self.export_report_type
             report_type = self._get_option('report_type')
@@ -450,9 +452,21 @@ class CheckHandler(BaseHandler):
 
 
 class CheckOBConnectorPool:
-    """Connection pool for OceanBase database connections."""
+    """
+    Legacy connection pool for OceanBase database connections.
+    
+    @deprecated: This class is deprecated. Use OBConnectionPool from src.common.ob_connection_pool instead.
+    This class is kept for backward compatibility during migration.
+    """
 
     def __init__(self, context, max_size, cluster):
+        import warnings
+        warnings.warn(
+            "CheckOBConnectorPool is deprecated. Use OBConnectionPool from src.common.ob_connection_pool instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
         self.max_size = max_size
         self.cluster = cluster
         self.connections = queue.Queue(maxsize=max_size)
@@ -466,10 +480,13 @@ class CheckOBConnectorPool:
         except Exception as e:
             self.stdio.error("CheckOBConnectorPool init fail! err: {0}".format(e))
 
-    def get_connection(self):
-        """Get a connection from the pool."""
+    def get_connection(self, timeout=30):
+        """Get a connection from the pool with timeout."""
         try:
-            return self.connections.get()
+            return self.connections.get(timeout=timeout)
+        except queue.Empty:
+            self.stdio.error("get connection timeout after {0}s, pool may be exhausted".format(timeout))
+            return None
         except Exception as e:
             self.stdio.error("get connection fail! err: {0}".format(e))
             return None
@@ -479,3 +496,7 @@ class CheckOBConnectorPool:
         if conn is not None:
             self.connections.put(conn)
         return
+    
+    def release(self, conn):
+        """Release method for compatibility with OBConnectionPool interface."""
+        return self.release_connection(conn)

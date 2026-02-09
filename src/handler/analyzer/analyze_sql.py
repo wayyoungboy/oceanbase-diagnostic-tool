@@ -88,10 +88,8 @@ class AnalyzeSQLHandler(BaseHandler):
 
         store_dir_option = self._get_option('store_dir')
         if store_dir_option is not None:
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.local_stored_parrent_path = os.path.abspath(store_dir_option)
+            # Use BaseHandler template method for store directory initialization
+            self.local_stored_parrent_path = self._init_store_dir(default=store_dir_option)
 
         output_option = self._get_option('output')
         if output_option:

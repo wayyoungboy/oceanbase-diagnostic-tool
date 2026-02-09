@@ -224,8 +224,7 @@ class AnalyzeSQLReviewHandler(BaseHandler):
     def __print_result(self):
         self.end_time = time.time()
         elapsed_time = self.end_time - self.start_time
-        data = [["Status", "Result Details", "Time"], ["Completed", self.local_store_path, f"{elapsed_time:.2f} s"]]
-        table = tabulate(data, headers="firstrow", tablefmt="grid")
-        self._log_info("\nAnalyze SQL Review Summary:")
-        self._log_info(table)
-        self._log_info("\n")
+        headers = ["Status", "Result Details", "Time"]
+        rows = [["Completed", self.local_store_path, f"{elapsed_time:.2f} s"]]
+        # Use BaseHandler template method for summary table generation
+        self._generate_summary_table(headers, rows, "Analyze SQL Review Summary")

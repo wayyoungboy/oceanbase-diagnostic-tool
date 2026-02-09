@@ -100,16 +100,22 @@ class SSHConnectionPool:
         with self._lock:
             # Try to get connection from pool
             if node_key in self._pools and self._pools[node_key]:
-                client = self._pools[node_key].popleft()
-                connection_id = self._get_connection_id(client)
+                # Check connections until we find a healthy one
+                while self._pools[node_key]:
+                    client = self._pools[node_key].popleft()
+                    connection_id = self._get_connection_id(client)
+                    
+                    # Health check: verify connection is still alive
+                    if self._is_connection_alive(client):
+                        # Update last used time
+                        if connection_id in self._connection_info:
+                            self._connection_info[connection_id] = (client, self._current_time())
+                        return client
+                    else:
+                        # Connection is dead, close it and try next one
+                        self._close_connection(client, connection_id)
 
-                # Update last used time
-                if connection_id in self._connection_info:
-                    self._connection_info[connection_id] = (client, self._current_time())
-
-                return client
-
-            # Create new connection
+            # No healthy connection in pool, create new one
             client = SshClient(context, node)
             connection_id = self._get_connection_id(client)
             self._connection_info[connection_id] = (client, self._current_time())
@@ -231,6 +237,29 @@ class SSHConnectionPool:
             yield client
         finally:
             self.return_connection(client)
+
+    def _is_connection_alive(self, client: SshClient) -> bool:
+        """
+        Check if SSH connection is still alive.
+
+        Args:
+            client: SSH client instance
+
+        Returns:
+            True if connection is alive, False otherwise
+        """
+        try:
+            # For RemoteClient, check transport status
+            if hasattr(client, 'client') and hasattr(client.client, '_ssh_fd'):
+                ssh_fd = client.client._ssh_fd
+                if ssh_fd and hasattr(ssh_fd, 'get_transport'):
+                    transport = ssh_fd.get_transport()
+                    if transport:
+                        return transport.is_active()
+            # For other client types, assume alive (can be enhanced later)
+            return True
+        except Exception:
+            return False
 
     def _current_time(self) -> float:
         """Get current time in seconds"""

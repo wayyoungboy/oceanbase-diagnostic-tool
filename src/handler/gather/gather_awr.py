@@ -19,7 +19,7 @@ import os
 import threading
 import time
 import datetime
-import tabulate
+# Removed tabulate import - now using BaseHandler._generate_summary_table
 import requests
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.tool import DirectoryUtil
@@ -276,12 +276,11 @@ class GatherAwrHandler(BaseHandler):
                 return info["id"]
         return 0
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple):
+    def __get_overall_summary(self, node_summary_tuple):
         """
-        generate overall summary from ocp summary tuples
-        :param ocp_summary_tuple: (cluster, is_err, err_msg, size, consume_time)
-        :return: a string indicating the overall summary
+        Generate overall summary from gather tuples using BaseHandler template method.
+        :param node_summary_tuple: List of tuples (cluster, is_err, error_msg, file_size, consume_time, pack_path)
+        :return: Formatted summary table string
         """
         summary_tab = []
         field_names = ["Cluster", "Status", "Size", "Time", "PackPath"]
@@ -291,6 +290,11 @@ class GatherAwrHandler(BaseHandler):
             file_size = tup[3]
             consume_time = tup[4]
             pack_path = tup[5]
-            format_file_size = FileUtil.size_format(num=file_size, output_str=True)
+            try:
+                format_file_size = FileUtil.size_format(num=file_size, output_str=True)
+            except Exception as e:
+                self._log_verbose("Failed to format file size {0}: {1}".format(file_size, e))
+                format_file_size = FileUtil.size_format(num=0, output_str=True)
             summary_tab.append((cluster, "Error" if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        return "\nGather AWR Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        # Use BaseHandler template method
+        return self._generate_summary_table(field_names, summary_tab, "Gather AWR Summary")

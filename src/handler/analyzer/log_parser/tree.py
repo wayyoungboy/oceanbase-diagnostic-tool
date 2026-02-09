@@ -18,7 +18,8 @@
 import heapq
 from typing import List, Dict, Union
 from src.common.tool import TimeUtils
-from prettytable import PrettyTable
+# Note: Tree class does not inherit BaseHandler, so using tabulate for consistency
+from tabulate import tabulate
 
 
 class Node:
@@ -307,18 +308,21 @@ class Tree:
         topN = heapq.nlargest(top_n, leaf_nodes.items(), lambda x: x[1].elapsed_time_us)
         topN_meta = TreeMeta()
         topN_counter = 0
-        table = PrettyTable(['ID', 'Leaf Span Name', 'Elapsed Time', 'HOSTS'])
-        table.align = 'l'
+        # Use tabulate for consistency (Tree class does not inherit BaseHandler)
+        headers = ['ID', 'Leaf Span Name', 'Elapsed Time', 'HOSTS']
+        rows = []
         while topN:
             topN_counter += 1
             element = heapq.heappop(topN)
             topN_name = str(element[1].name).replace('├', '').replace('│', '').replace('└', '').replace('─', '').replace(' ', '')
-            table.add_row([element[1].index, topN_name, element[1].elapsed_time, element[1].host_info])
+            rows.append([element[1].index, topN_name, element[1].elapsed_time, element[1].host_info])
             topN_meta.record_node_info(element[1])
             topN_li.append(element[1])
         if topN_counter > 0:
+            # Generate table using tabulate
+            table_str = tabulate(rows, headers=headers, tablefmt="grid", showindex=False)
             yield '\nTop time-consuming leaf span:\n'
-            for line in str(table).splitlines():
+            for line in table_str.splitlines():
                 yield str(line)
             yield topN_meta.detail_header
             for node in topN_li:

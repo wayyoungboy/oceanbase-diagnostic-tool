@@ -93,12 +93,8 @@ class GatherPerfHandler(BaseHandler):
             count_option = 100000000
         self.count_option = count_option
 
-        store_dir_option = self._get_option('store_dir')
-        if store_dir_option and store_dir_option != './':
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.local_stored_path = os.path.abspath(store_dir_option)
+        # Use BaseHandler template method for store directory initialization
+        self.local_stored_path = self._init_store_dir(default='./')
 
         scope_option = self._get_option('scope')
         if scope_option:
@@ -160,6 +156,7 @@ class GatherPerfHandler(BaseHandler):
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"store_dir": pack_dir_this_command})
 
             summary_tuples = self.__get_overall_summary(gather_tuples)
+            # Note: summary_tuples is now a string from _generate_summary_table
             self._log_info(summary_tuples)
             # Persist the summary results to a file
             FileUtil.write_append(os.path.join(pack_dir_this_command, "result_summary.txt"), summary_tuples)
@@ -554,10 +551,9 @@ class GatherPerfHandler(BaseHandler):
             # Re-raise the exception to trigger retry mechanism
             raise e
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple):
+    def __get_overall_summary(self, node_summary_tuple):
         """
-        Generate summary table from gather tuples.
+        Generate summary table from gather tuples using BaseHandler template method.
 
         Args:
             node_summary_tuple: List of tuples (node_ip, is_err, error_msg, file_size, consume_time, pack_path)
@@ -583,4 +579,6 @@ class GatherPerfHandler(BaseHandler):
 
             status = "Error: " + error_msg if is_err else "Completed"
             summary_tab.append((node, status, format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        return "\nGather Perf Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        
+        # Use BaseHandler template method
+        return self._generate_summary_table(field_names, summary_tab, "Gather Perf Summary")

@@ -19,7 +19,7 @@ import os
 import pwinput
 import time
 from collections import OrderedDict
-import yaml
+import oyaml as yaml
 
 from src.common.command import get_observer_version
 from src.common.constant import const

@@ -16,10 +16,12 @@
 @desc: Report module for check tasks
 """
 
-from prettytable import PrettyTable
+# Note: CheckReport is not a Handler, so it cannot use BaseHandler._generate_summary_table
+# Using tabulate for consistency with other table generation
+from tabulate import tabulate
 import datetime
 import os
-import yaml
+import oyaml as yaml
 import xmltodict
 import json
 import threading
@@ -31,6 +33,17 @@ from src.telemetry.telemetry import telemetry
 from jinja2 import Template
 from src.common.version import OBDIAG_VERSION
 from src.common.tool import Util
+from enum import Enum
+from markupsafe import escape
+
+
+class TaskStatus(str, Enum):
+    """Task execution status enumeration."""
+    NORMAL = "normal"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    FAIL = "fail"
+    SKIPPED = "skipped"
 
 
 class CheckReport:
@@ -65,18 +78,23 @@ class CheckReport:
             self.tasks.append(task_report)
 
     def export_report(self):
+        """Export report in the specified format. Thread-safe."""
         self.stdio.verbose("export report to {0}.{1}, export type is {1}".format(self.report_path, self.export_report_type))
         try:
+            # Create snapshot of tasks for thread-safe access
+            with self._tasks_lock:
+                tasks_snapshot = list(self.tasks)
+            
             if self.export_report_type == "table":
-                self.export_report_table()
+                self.export_report_table(tasks_snapshot)
             elif self.export_report_type == "json":
-                self.export_report_json()
+                self.export_report_json(tasks_snapshot)
             elif self.export_report_type == "xml":
-                self.export_report_xml()
+                self.export_report_xml(tasks_snapshot)
             elif self.export_report_type == "yaml":
-                self.export_report_yaml()
+                self.export_report_yaml(tasks_snapshot)
             elif self.export_report_type == "html":
-                self.export_report_html()
+                self.export_report_html(tasks_snapshot)
             else:
                 raise CheckReportException("export_report_type: {0} is not support".format(self.export_report_type))
             self.export_report_path = self.export_report_path + "." + self.export_report_type
@@ -87,33 +105,40 @@ class CheckReport:
     def get_report_path(self):
         return self.report_path + "." + self.export_report_type
 
-    def export_report_xml(self):
-        allMap = self.report_tobeMap()
+    def export_report_xml(self, tasks=None):
+        """Export report as XML. Thread-safe if tasks snapshot provided."""
+        allMap = self.report_tobeMap(tasks)
         with open(self.report_path + ".xml", 'w', encoding='utf-8') as f:
             allreport = {"report": allMap}
-            json_str = json.dumps(allreport)
-            xml_str = xmltodict.unparse(json.loads(json_str))
+            xml_str = xmltodict.unparse(allreport)
             f.write(xml_str)
-            f.close()
 
-    def export_report_yaml(self):
-        allMap = self.report_tobeMap()
+    def export_report_yaml(self, tasks=None):
+        """Export report as YAML. Thread-safe if tasks snapshot provided."""
+        allMap = self.report_tobeMap(tasks)
         with open(self.report_path + ".yaml", 'w', encoding='utf-8') as f:
             yaml.dump(allMap, f)
 
-    def export_report_json(self):
-        allMap = self.report_tobeMap()
+    def export_report_json(self, tasks=None):
+        """Export report as JSON. Thread-safe if tasks snapshot provided."""
+        allMap = self.report_tobeMap(tasks)
         self.stdio.verbose("export_report_json allMap: {0}".format(allMap))
         with open(self.report_path + ".json", 'w', encoding='utf-8') as f:
             json.dump(allMap, f, ensure_ascii=False)
 
-    def report_tobeMap(self):
+    def report_tobeMap(self, tasks=None):
+        """Convert tasks to map structure. Thread-safe if tasks snapshot provided."""
+        if tasks is None:
+            # For backward compatibility, use current tasks (should be called with snapshot)
+            with self._tasks_lock:
+                tasks = list(self.tasks)
+        
         failMap = {}
         criticalMap = {}
         warningMap = {}
         allInfoMap = {}
         allMap = {}
-        for task in self.tasks:
+        for task in tasks:
             if len(task.all_fail()) != 0:
                 failMap[task.name] = task.all_fail()
             if len(task.all_critical()) != 0:
@@ -132,88 +157,99 @@ class CheckReport:
         telemetry.push_check_info(self.report_target, {"fail_cases": list(failMap), "critical_cases": list(criticalMap), "warning_cases": list(warningMap)})
         return allMap
 
-    def export_report_table(self):
+    def export_report_table(self, tasks=None):
+        """Export report as table. Thread-safe if tasks snapshot provided."""
+        if tasks is None:
+            # For backward compatibility
+            with self._tasks_lock:
+                tasks = list(self.tasks)
+        
         try:
-            report_fail_tb = PrettyTable(["task", "task_report"])
-            report_fail_tb.align["task_report"] = "l"
-            report_fail_tb.title = "fail-tasks-report"
-
-            report_critical_tb = PrettyTable(["task", "task_report"])
-            report_critical_tb.align["task_report"] = "l"
-            report_critical_tb.title = "critical-tasks-report"
-
-            report_warning_tb = PrettyTable(["task", "task_report"])
-            report_warning_tb.align["task_report"] = "l"
-            report_warning_tb.title = "warning-tasks-report"
-
-            report_all_tb = PrettyTable(["task", "task_report"])
-            report_all_tb.align["task_report"] = "l"
-            report_all_tb.title = "all-tasks-report"
+            # Note: CheckReport is not a Handler, so using tabulate directly for consistency
+            headers = ["task", "task_report"]
+            fail_rows = []
+            critical_rows = []
+            warning_rows = []
+            all_rows = []
             self.stdio.verbose("export report start")
             failMap = []
             criticalMap = []
             warningMap = []
 
-            for task in self.tasks:
+            for task in tasks:
                 if len(task.all_fail()) != 0:
-                    report_fail_tb.add_row([task.name, '\n'.join(task.all_fail())])
+                    fail_rows.append([task.name, '\n'.join(task.all_fail())])
                     failMap.append(task.name)
                 if len(task.all_critical()) != 0:
-                    report_critical_tb.add_row([task.name, '\n'.join(task.all_critical())])
+                    critical_rows.append([task.name, '\n'.join(task.all_critical())])
                     criticalMap.append(task.name)
                 if len(task.all_warning()) != 0:
-                    report_warning_tb.add_row([task.name, '\n'.join(task.all_warning())])
+                    warning_rows.append([task.name, '\n'.join(task.all_warning())])
                     warningMap.append(task.name)
                 if len(task.all()) != 0:
-                    report_all_tb.add_row([task.name, '\n'.join(task.all())])
+                    all_rows.append([task.name, '\n'.join(task.all())])
                 if len(task.all_fail()) == 0 and len(task.all_critical()) == 0 and len(task.all_warning()) == 0:
-                    report_all_tb.add_row([task.name, "all pass"])
+                    all_rows.append([task.name, "all pass"])
             telemetry.push_check_info(self.report_target, {"fail_cases": list(set(failMap)), "critical_cases": list(set(criticalMap)), "warning_cases": list(set(warningMap))})
-
-            fp = open(self.report_path + ".table", 'a+', encoding='utf-8')
-            fp.write("obdiag version: {0}\n".format(OBDIAG_VERSION))
-            fp.write("report time: {0}\n\n".format(self.report_time))
 
             # Check if this is build_before case (should not get version)
             cases_option = Util.get_option(self.context.options, 'cases')
             is_build_before = cases_option == "build_before"
 
-            if self.report_target == "observer":
-                if not is_build_before:
-                    observer_version = get_observer_version(self.context)
-                    if observer_version:
-                        fp.write("observer version: {0}\n".format(observer_version))
-                    observer_version_commit_id = get_observer_commit_id(self.context)
-                    if observer_version_commit_id:
-                        fp.write("observer commit id: {0}\n".format(observer_version_commit_id))
-                else:
-                    self.stdio.verbose("cases is build_before, skip getting observer version in report")
-            elif self.report_target == "obproxy":
-                if not is_build_before:
-                    obproxy_version = get_obproxy_version(self.context)
-                    if obproxy_version:
-                        fp.write("obproxy version: {0}\n".format(obproxy_version))
-                else:
-                    self.stdio.verbose("cases is build_before, skip getting obproxy version in report")
+            with open(self.report_path + ".table", 'a+', encoding='utf-8') as fp:
+                fp.write("obdiag version: {0}\n".format(OBDIAG_VERSION))
+                fp.write("report time: {0}\n\n".format(self.report_time))
 
-            if len(report_fail_tb._rows) != 0:
-                self.stdio.verbose(report_fail_tb)
-                fp.write(report_fail_tb.get_string() + "\n")
-            if len(report_critical_tb._rows) != 0:
-                self.stdio.verbose(report_critical_tb)
-                fp.write(report_critical_tb.get_string() + "\n")
-            if len(report_warning_tb._rows) != 0:
-                self.stdio.verbose(report_warning_tb)
-                fp.write(report_warning_tb.get_string() + "\n")
-            if len(report_all_tb._rows) != 0:
-                self.stdio.verbose(report_all_tb)
-                fp.write(report_all_tb.get_string() + "\n")
-            fp.close()
+                if self.report_target == "observer":
+                    if not is_build_before:
+                        observer_version = get_observer_version(self.context)
+                        if observer_version:
+                            fp.write("observer version: {0}\n".format(observer_version))
+                        observer_version_commit_id = get_observer_commit_id(self.context)
+                        if observer_version_commit_id:
+                            fp.write("observer commit id: {0}\n".format(observer_version_commit_id))
+                    else:
+                        self.stdio.verbose("cases is build_before, skip getting observer version in report")
+                elif self.report_target == "obproxy":
+                    if not is_build_before:
+                        obproxy_version = get_obproxy_version(self.context)
+                        if obproxy_version:
+                            fp.write("obproxy version: {0}\n".format(obproxy_version))
+                    else:
+                        self.stdio.verbose("cases is build_before, skip getting obproxy version in report")
+
+                # Generate tables using tabulate for consistency
+                if len(fail_rows) != 0:
+                    fail_table = tabulate(fail_rows, headers=headers, tablefmt="grid", showindex=False)
+                    fail_table_with_title = "fail-tasks-report\n" + fail_table
+                    self.stdio.verbose(fail_table_with_title)
+                    fp.write(fail_table_with_title + "\n")
+                if len(critical_rows) != 0:
+                    critical_table = tabulate(critical_rows, headers=headers, tablefmt="grid", showindex=False)
+                    critical_table_with_title = "critical-tasks-report\n" + critical_table
+                    self.stdio.verbose(critical_table_with_title)
+                    fp.write(critical_table_with_title + "\n")
+                if len(warning_rows) != 0:
+                    warning_table = tabulate(warning_rows, headers=headers, tablefmt="grid", showindex=False)
+                    warning_table_with_title = "warning-tasks-report\n" + warning_table
+                    self.stdio.verbose(warning_table_with_title)
+                    fp.write(warning_table_with_title + "\n")
+                if len(all_rows) != 0:
+                    all_table = tabulate(all_rows, headers=headers, tablefmt="grid", showindex=False)
+                    all_table_with_title = "all-tasks-report\n" + all_table
+                    self.stdio.verbose(all_table_with_title)
+                    fp.write(all_table_with_title + "\n")
             self.stdio.verbose("export report end")
         except Exception as e:
             raise CheckReportException("export report {0}".format(e))
 
-    def export_report_html(self):
+    def export_report_html(self, tasks=None):
+        """Export report as HTML. Thread-safe if tasks snapshot provided."""
+        if tasks is None:
+            # For backward compatibility
+            with self._tasks_lock:
+                tasks = list(self.tasks)
+        
         try:
             html_template_head = """
                 <!DOCTYPE html>
@@ -356,28 +392,52 @@ class CheckReport:
             warning_map_html = []
             report_all_html = []
 
-            for task in self.tasks:
+            for task in tasks:
+                # Escape HTML to prevent XSS
+                safe_task_name = escape(str(task.name))
+                
                 if len(task.all_fail()) != 0:
-                    fail_map_html.append({"task": task.name, "task_report": '<br>'.join([item.replace("\\n", "<br>") for item in task.all_fail()])})
+                    safe_report = '<br>'.join([
+                        escape(str(item)).replace("\\n", "<br>") 
+                        for item in task.all_fail()
+                    ])
+                    fail_map_html.append({"task": safe_task_name, "task_report": safe_report})
+                
                 if len(task.all_critical()) != 0:
-                    critical_map_html.append({"task": task.name, "task_report": '<br>'.join([item.replace("\\n", "<br>") for item in task.all_critical()])})
+                    safe_report = '<br>'.join([
+                        escape(str(item)).replace("\\n", "<br>") 
+                        for item in task.all_critical()
+                    ])
+                    critical_map_html.append({"task": safe_task_name, "task_report": safe_report})
+                
                 if len(task.all_warning()) != 0:
-                    warning_map_html.append({"task": task.name, "task_report": '<br>'.join([item.replace("\\n", "<br>") for item in task.all_warning()])})
+                    safe_report = '<br>'.join([
+                        escape(str(item)).replace("\\n", "<br>") 
+                        for item in task.all_warning()
+                    ])
+                    warning_map_html.append({"task": safe_task_name, "task_report": safe_report})
+                
                 if len(task.all()) != 0:
-                    report_all_html.append({"task": task.name, "task_report": '<br>'.join([item.replace("\\n", "<br>") for item in task.all()])})
+                    safe_report = '<br>'.join([
+                        escape(str(item)).replace("\\n", "<br>") 
+                        for item in task.all()
+                    ])
+                    report_all_html.append({"task": safe_task_name, "task_report": safe_report})
+                
                 if len(task.all_fail()) == 0 and len(task.all_critical()) == 0 and len(task.all_warning()) == 0:
-                    report_all_html.append({"task": task.name, "task_report": "all pass"})
+                    report_all_html.append({"task": safe_task_name, "task_report": "all pass"})
 
             report_title_str = "obdiag Check Report"
             if self.report_target == "observer":
                 report_title_str = "obdiag observer Check Report"
             elif self.report_target == "obproxy":
                 report_title_str = "obdiag obproxy Check Report"
-            fp = open(self.report_path + ".html", 'a+', encoding='utf-8')
+            # Use context manager for file operations
             template_head = Template(html_template_head)
             template_table = Template(html_template_data_table)
-            fp.write(template_head.render(report_title=report_title_str) + "\n")
             template_report_info_table = Template(html_template_report_info_table)
+            template_tail = Template(html_template_tail)
+            
             cluster_ips = ""
 
             # Check if this is build_before case (should not get version)
@@ -395,24 +455,34 @@ class CheckReport:
             for server in self.context.cluster_config["servers"]:
                 cluster_ips += server["ip"]
                 cluster_ips += ";"
-            fp.write(template_report_info_table.render(report_title=report_title_str, report_time=self.report_time, obdiag_version=OBDIAG_VERSION, ob_cluster_ip=cluster_ips, ob_commit_id=ob_commit_id or "", ob_version=ob_version or "") + "\n")
+            
+            with open(self.report_path + ".html", 'w', encoding='utf-8') as fp:
+                fp.write(template_head.render(report_title=report_title_str) + "\n")
+                fp.write(
+                    template_report_info_table.render(
+                        report_title=report_title_str, 
+                        report_time=self.report_time, 
+                        obdiag_version=OBDIAG_VERSION, 
+                        ob_cluster_ip=cluster_ips, 
+                        ob_commit_id=ob_commit_id or "", 
+                        ob_version=ob_version or ""
+                    ) + "\n"
+                )
 
-            if len(fail_map_html) != 0:
-                rendered_fail_map_html = template_table.render(task_name="Fail Tasks Report", tasks=fail_map_html)
-                fp.write(rendered_fail_map_html + "\n")
-            if len(critical_map_html) != 0:
-                rendered_critical_map_html = template_table.render(task_name="Critical Tasks Report", tasks=critical_map_html)
-                fp.write(rendered_critical_map_html + "\n")
-            if len(warning_map_html) != 0:
-                rendered_warning_map_html = template_table.render(task_name="Warning Tasks Report", tasks=warning_map_html)
-                fp.write(rendered_warning_map_html + "\n")
-            if len(report_all_html) != 0:
-                rendered_report_all_html = template_table.render(task_name="All Tasks Report", tasks=report_all_html)
-                fp.write(rendered_report_all_html + "\n")
+                if len(fail_map_html) != 0:
+                    rendered_fail_map_html = template_table.render(task_name="Fail Tasks Report", tasks=fail_map_html)
+                    fp.write(rendered_fail_map_html + "\n")
+                if len(critical_map_html) != 0:
+                    rendered_critical_map_html = template_table.render(task_name="Critical Tasks Report", tasks=critical_map_html)
+                    fp.write(rendered_critical_map_html + "\n")
+                if len(warning_map_html) != 0:
+                    rendered_warning_map_html = template_table.render(task_name="Warning Tasks Report", tasks=warning_map_html)
+                    fp.write(rendered_warning_map_html + "\n")
+                if len(report_all_html) != 0:
+                    rendered_report_all_html = template_table.render(task_name="All Tasks Report", tasks=report_all_html)
+                    fp.write(rendered_report_all_html + "\n")
 
-            template_tail = Template(html_template_tail)
-            fp.write(template_tail.render())
-            fp.close()
+                fp.write(template_tail.render())
             self.stdio.verbose("export report end")
         except Exception as e:
             raise CheckReportException("export report {0}".format(e))

@@ -22,7 +22,7 @@ from src.common.tool import DirectoryUtil, TimeUtils, Util, StringUtils
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.ob_connector import OBConnector
 import csv
-from prettytable import PrettyTable
+# Removed PrettyTable import - now using BaseHandler._generate_summary_table
 import json
 import datetime
 from colorama import Fore, Style
@@ -105,21 +105,15 @@ class AnalyzeParameterHandler(BaseHandler):
                 return True
 
     def init_option_default(self):
-        store_dir_option = self._get_option('store_dir')
+        store_dir_option = self._get_option('store_dir', default='./')
         offline_file_option = self._get_option('file')
 
-        if store_dir_option and store_dir_option != "./":
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.export_report_path = os.path.abspath(store_dir_option)
-        else:
-            # Default to current directory if not specified
-            self.export_report_path = "./"
-
+        # Use BaseHandler template method for base directory
+        base_store_dir = self._init_store_dir(default=store_dir_option)
+        
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
-        self.export_report_path = os.path.join(self.export_report_path, target_dir)
+        self.export_report_path = os.path.join(base_store_dir, target_dir)
         if not os.path.exists(self.export_report_path):
             os.makedirs(self.export_report_path, exist_ok=True)
 
@@ -137,18 +131,13 @@ class AnalyzeParameterHandler(BaseHandler):
         store_dir_option = self._get_option('store_dir')
         offline_file_option = self._get_option('file')
 
-        if store_dir_option and store_dir_option != "./":
-            if not os.path.exists(os.path.abspath(store_dir_option)):
-                self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                os.makedirs(os.path.abspath(store_dir_option))
-            self.export_report_path = os.path.abspath(store_dir_option)
-        else:
-            # Default to current directory if not specified
-            self.export_report_path = "./"
-
+        # Use BaseHandler template method for base directory
+        store_dir_option = store_dir_option if store_dir_option and store_dir_option != "./" else "./"
+        base_store_dir = self._init_store_dir(default=store_dir_option)
+        
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_analyze_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
-        self.export_report_path = os.path.join(self.export_report_path, target_dir)
+        self.export_report_path = os.path.join(base_store_dir, target_dir)
         if not os.path.exists(self.export_report_path):
             os.makedirs(self.export_report_path, exist_ok=True)
 
@@ -171,11 +160,11 @@ class AnalyzeParameterHandler(BaseHandler):
             sql = '''select substr(version(),8), svr_ip,svr_port,zone,scope,TENANT_ID,name,value,section,
 EDIT_LEVEL, now(),default_value,isdefault from GV$OB_PARAMETERS where isdefault='NO' order by 5,2,3,4,7'''
             parameter_info = self.obconn.execute_sql(sql)
-            report_default_tb = PrettyTable(["IP", "PORT", "ZONE", "CLUSTER", "TENANT_ID", "NAME", "DEFAULT_VALUE", "CURRENT_VALUE"])
+            headers = ["IP", "PORT", "ZONE", "CLUSTER", "TENANT_ID", "NAME", "DEFAULT_VALUE", "CURRENT_VALUE"]
+            rows = []
             now = datetime.datetime.now()
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
             file_name = f'{self.export_report_path}/parameter_default_{date_format}.table'
-            fp = open(file_name, 'a+', encoding="utf8")
 
             # Prepare structured data for JSON output (when silent mode)
             structured_data = []
@@ -185,7 +174,7 @@ EDIT_LEVEL, now(),default_value,isdefault from GV$OB_PARAMETERS where isdefault=
                     tenant_id = 'None'
                 else:
                     tenant_id = row[5]
-                report_default_tb.add_row([row[1], row[2], row[3], row[4], tenant_id, row[6], row[11], row[7]])
+                rows.append([row[1], row[2], row[3], row[4], tenant_id, row[6], row[11], row[7]])
 
                 # Build structured data for JSON output
                 if self.stdio and self.stdio.silent:
@@ -210,15 +199,18 @@ EDIT_LEVEL, now(),default_value,isdefault from GV$OB_PARAMETERS where isdefault=
                         }
                     )
 
-            fp.write(report_default_tb.get_string() + "\n")
-            self._log_info(report_default_tb.get_string())
+            # Use BaseHandler template method for summary table generation
+            table_str = self._generate_summary_table(headers, rows, "Parameter Default Report")
+            with open(file_name, 'a+', encoding="utf8") as fp:
+                fp.write(table_str + "\n")
+            # Note: _generate_summary_table already logs the table, so we don't need to print again
             self._log_info("Analyze parameter default finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
 
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name})
             else:
-                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string(), "file_name": file_name})
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": table_str, "file_name": file_name})
         else:
             if self.parameter_file_name is None:
                 self._log_error("the version of OceanBase is lower than 4.2.2, an initialization parameter file must be provided to find non-default values")
@@ -251,11 +243,11 @@ order by 5,2,3,4,7'''
                         key = str(row[1]) + '-' + str(row[2]) + '-' + str(row[3]) + '-' + str(row[4]) + '-' + str(row[5]) + '-' + str(row[6])
                         value = row[7]
                         file_parameter_dict[key] = value
-                report_default_tb = PrettyTable(["IP", "PORT", "ZONE", "CLUSTER", "TENANT_ID", "NAME", "DEFAULT_VALUE", "CURRENT_VALUE"])
+                headers = ["IP", "PORT", "ZONE", "CLUSTER", "TENANT_ID", "NAME", "DEFAULT_VALUE", "CURRENT_VALUE"]
+                rows = []
                 now = datetime.datetime.now()
                 date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
                 file_name = f'{self.export_report_path}/parameter_default_{date_format}.table'
-                fp = open(file_name, 'a+', encoding="utf8")
                 is_empty = True
 
                 # Prepare structured data for JSON output (when silent mode)
@@ -266,7 +258,7 @@ order by 5,2,3,4,7'''
                         col_list = key.split('-')
                         # Fix: col_list[1] should be PORT, not col_list[0]
                         port = col_list[1] if len(col_list) > 1 else col_list[0]
-                        report_default_tb.add_row([col_list[0], port, col_list[2], col_list[3], col_list[4], col_list[5], file_parameter_dict[key], db_parameter_dict[key]])
+                        rows.append([col_list[0], port, col_list[2], col_list[3], col_list[4], col_list[5], file_parameter_dict[key], db_parameter_dict[key]])
                         is_empty = False
 
                         # Build structured data for JSON output
@@ -293,16 +285,19 @@ order by 5,2,3,4,7'''
                                 }
                             )
 
-                fp.write(report_default_tb.get_string() + "\n")
                 if not is_empty:
-                    self._log_info(report_default_tb.get_string())
+                    # Use BaseHandler template method for summary table generation
+                    table_str = self._generate_summary_table(headers, rows, "Parameter Default Report")
+                    with open(file_name, 'a+', encoding="utf8") as fp:
+                        fp.write(table_str + "\n")
+                    # Note: _generate_summary_table already logs the table, so we don't need to print again
                     self._log_info("Analyze parameter default finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
 
                     # Return structured JSON data in silent mode, table string otherwise
                     if self.stdio and self.stdio.silent:
                         return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name})
                     else:
-                        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string(), "file_name": file_name})
+                        return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": table_str, "file_name": file_name})
                 else:
                     self._log_info("Analyze parameter default finished. All parameter values are the same as the default values.")
                     # Return empty list in silent mode for consistency
@@ -380,18 +375,19 @@ order by 5,2,3,4,7'''
         fp = open(file_name, 'a+', encoding="utf8")
         is_empty = True
         report_diff_tbs = []
+        file_name = f'{self.export_report_path}/parameter_diff_{date_format}.table'
 
         # Prepare structured data for JSON output (when silent mode)
         structured_data = []
 
         for tenant, value_list in diff_parameter_dict.items():
             if len(value_list) > 0:
-                report_diff_tb = PrettyTable(["name", "diff"])
-                report_diff_tb.align["task_report"] = "l"
+                headers = ["name", "diff"]
+                rows = []
                 if tenant == 'CLUSTER':
-                    report_diff_tb.title = 'SCOPE:' + tenant
+                    title = 'SCOPE:' + tenant
                 else:
-                    report_diff_tb.title = 'SCOPE:TENANT-' + tenant
+                    title = 'SCOPE:TENANT-' + tenant
 
                 # Build structured data for JSON output
                 tenant_data = {"scope": tenant, "parameters": []}
@@ -401,21 +397,24 @@ order by 5,2,3,4,7'''
                     for value in value_dict['value_list']:
                         value_str = json.dumps(value)
                         value_str_list.append(value_str)
-                    report_diff_tb.add_row([value_dict['name'], '\n'.join(value_str_list)])
+                    rows.append([value_dict['name'], '\n'.join(value_str_list)])
 
                     # Add to structured data
                     if self.stdio and self.stdio.silent:
                         tenant_data["parameters"].append({"name": value_dict['name'], "diff": value_dict['value_list']})  # Already a list of dicts with observer and value
 
-                fp.write(report_diff_tb.get_string() + "\n")
-                self._log_info(report_diff_tb.get_string())
+                # Use BaseHandler template method for summary table generation
+                table_str = self._generate_summary_table(headers, rows, title)
+                with open(file_name, 'a+', encoding="utf8") as fp:
+                    fp.write(table_str + "\n")
+                # Note: _generate_summary_table already logs the table, so we don't need to print again
                 is_empty = False
-                report_diff_tbs.append(report_diff_tb.get_string())
+                report_diff_tbs.append(table_str)
 
                 if self.stdio and self.stdio.silent and tenant_data["parameters"]:
                     structured_data.append(tenant_data)
 
-        fp.close()
+# File operations are now handled within the loop using 'with open'
         if not is_empty:
             self._log_info("Analyze parameter diff finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
 

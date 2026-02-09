@@ -21,7 +21,7 @@ import os
 import re
 import tarfile
 
-import tabulate
+# Removed tabulate import - now using BaseHandler._generate_summary_table
 
 from src.common.base_handler import BaseHandler
 from src.common.ssh_client.local_client import LocalClient
@@ -175,12 +175,12 @@ class AnalyzeLogHandler(BaseHandler):
                     if field_names_nu == len(summary):
                         break
                 analyze_info_nodes.append(analyze_info_node)
-            table = tabulate.tabulate(summary_list, headers=field_names, tablefmt="grid", showindex=False)
+            # Use BaseHandler template method for table generation
+            table_str = self._generate_summary_table(field_names, summary_list, title)
             self.stdio.stop_loading('analyze result success')
-            self.stdio.print(title)
-            self.stdio.print(table)
+            # Note: _generate_summary_table already logs the table, so we don't need to print again
             with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-                fileobj.write(u'{}'.format(title + str(table) + "\n\nDetails:\n\n"))
+                fileobj.write(u'{}'.format(table_str + "\n\nDetails:\n\n"))
             # build summary details
             summary_details_list_data = []
             for m in range(len(summary_details_list)):
@@ -194,11 +194,11 @@ class AnalyzeLogHandler(BaseHandler):
             if self.by_tenant and tenant_results_list:
                 tenant_title, tenant_field_names, tenant_summary_list = self.__get_tenant_summary(tenant_results_list)
                 if tenant_summary_list:
-                    tenant_table = tabulate.tabulate(tenant_summary_list, headers=tenant_field_names, tablefmt="grid", showindex=False)
-                    self.stdio.print(tenant_title)
-                    self.stdio.print(tenant_table)
+                    # Use BaseHandler template method for tenant table generation
+                    tenant_table_str = self._generate_summary_table(tenant_field_names, tenant_summary_list, tenant_title)
+                    # Note: _generate_summary_table already logs the table, so we don't need to print again
                     with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-                        fileobj.write(u'{}'.format(tenant_title + str(tenant_table) + "\n\n"))
+                        fileobj.write(u'{}'.format(tenant_table_str + "\n\n"))
                 elif self.tenant_id_filter:
                     self.stdio.warn("No errors found for tenant: {0}".format(self.tenant_id_filter))
             last_info = "For more details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(local_store_parent_dir, "result_details.txt"))
@@ -285,11 +285,11 @@ class AnalyzeLogHandler(BaseHandler):
                 if field_names_nu == len(summary):
                     break
             analyze_info_nodes.append(analyze_info_node)
-        table = tabulate.tabulate(summary_list, headers=field_names, tablefmt="grid", showindex=False)
-        self.stdio.print(title)
-        self.stdio.print(table)
+        # Use BaseHandler template method for summary table generation
+        table_str = self._generate_summary_table(field_names, summary_list, title)
+        # Note: _generate_summary_table already logs the table, so we don't need to print again
         with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-            fileobj.write(u'{}'.format(title + str(table) + "\n\nDetails:\n\n"))
+            fileobj.write(u'{}'.format(table_str + "\n\nDetails:\n\n"))
         summary_details_list_data = []
         for m in range(len(summary_details_list)):
             summary_details_list_data_once = {}
@@ -302,11 +302,11 @@ class AnalyzeLogHandler(BaseHandler):
         if self.by_tenant and tenant_results_list:
             tenant_title, tenant_field_names, tenant_summary_list = self.__get_tenant_summary(tenant_results_list)
             if tenant_summary_list:
-                tenant_table = tabulate.tabulate(tenant_summary_list, headers=tenant_field_names, tablefmt="grid", showindex=False)
-                self.stdio.print(tenant_title)
-                self.stdio.print(tenant_table)
+                # Use BaseHandler template method for tenant table generation
+                tenant_table_str = self._generate_summary_table(tenant_field_names, tenant_summary_list, tenant_title)
+                # Note: _generate_summary_table already logs the table, so we don't need to print again
                 with open(os.path.join(local_store_parent_dir, "result_details.txt"), 'a', encoding='utf-8') as fileobj:
-                    fileobj.write(u'{}'.format(tenant_title + str(tenant_table) + "\n\n"))
+                    fileobj.write(u'{}'.format(tenant_table_str + "\n\n"))
             elif self.tenant_id_filter:
                 self.stdio.warn("No errors found for tenant: {0}".format(self.tenant_id_filter))
         last_info = "For more details, please run cmd \033[32m' cat {0} '\033[0m\n".format(os.path.join(local_store_parent_dir, "result_details.txt"))

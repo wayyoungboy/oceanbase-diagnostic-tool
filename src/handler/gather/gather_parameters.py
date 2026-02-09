@@ -60,13 +60,9 @@ class GatherParametersHandler(BaseHandler):
         self._validate_initialized()
 
         try:
-            # Initialize options
-            store_dir_option = self._get_option('store_dir')
-            if store_dir_option and store_dir_option != "./":
-                if not os.path.exists(os.path.abspath(store_dir_option)):
-                    self._log_warn(f'args --store_dir [{os.path.abspath(store_dir_option)}] incorrect: No such directory, Now create it')
-                    os.makedirs(os.path.abspath(store_dir_option))
-                self.gather_pack_dir = os.path.abspath(store_dir_option)
+            # Initialize options using BaseHandler template method
+            store_dir_option = self._get_option('store_dir', default='./')
+            self.gather_pack_dir = self._init_store_dir(default=store_dir_option)
 
             # example of the format of pack dir for this command: (gather_pack_dir)/gather_pack_20190610123344
             pack_dir_this_command = os.path.join(self.gather_pack_dir, "gather_parameters")

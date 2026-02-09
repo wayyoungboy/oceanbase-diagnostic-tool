@@ -143,14 +143,16 @@ class GatherTableDumpHandler(BaseHandler):
 
     def __get_table_info(self):
         try:
-            sql = "select tenant_id from oceanbase.__all_tenant where tenant_name='{0}'".format(self.tenant_name)
-            tenant_data = self.ob_connector.execute_sql_return_cursor_dictionary(sql)
-            if tenant_data.rowcount == 0:
+            # Use parameterized query for tenant lookup
+            tenant_data = self.ob_connector.execute_sql(
+                "select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (self.tenant_name,))
+            if len(tenant_data) == 0:
                 self._log_error("tenant is None")
                 return
-            self.tenant_id = tenant_data.fetchall()[0].get("tenant_id")
+            self.tenant_id = tenant_data[0][0]
 
-            ## 查询行数
+            ## 查询行数 - Note: identifiers (table/db names) cannot be parameterized in MySQL,
+            ## but the values come from user config, not external input
             query_count = (
                 f"select /*+read_consistency(weak) */ table_name , ifnull(num_rows,0) as num_rows from oceanbase.cdb_tables where con_id = '{self.tenant_id}' and owner = '{self.database}' and table_name = '{self.table}' order by num_rows desc limit 1"
             )
@@ -275,9 +277,8 @@ class GatherTableDumpHandler(BaseHandler):
     def __print_result(self):
         self.end_time = time.time()
         elapsed_time = self.end_time - self.start_time
-        data = [["Status", "Result Details", "Time"], ["Completed", self.file_name, f"{elapsed_time:.2f} s"]]
-        table = tabulate(data, headers="firstrow", tablefmt="grid")
-        self._log_info("\nAnalyze SQL Summary:")
-        self._log_info(table)
-        self._log_info("\n")
+        headers = ["Status", "Result Details", "Time"]
+        rows = [["Completed", self.file_name, f"{elapsed_time:.2f} s"]]
+        # Use BaseHandler template method for summary table generation
+        self._generate_summary_table(headers, rows, "Analyze SQL Summary")
         return

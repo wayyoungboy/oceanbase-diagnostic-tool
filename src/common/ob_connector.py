@@ -17,8 +17,44 @@
 """
 import re
 
-from prettytable import from_db_cursor
+# Note: Replaced PrettyTable with tabulate for consistency
+from tabulate import tabulate
 import pymysql as mysql
+
+
+class TableResult:
+    """
+    Wrapper class to replace PrettyTable, providing compatible interface.
+    Uses tabulate internally for table generation.
+    """
+    def __init__(self, field_names, rows):
+        self.field_names = field_names
+        self.rows = rows
+        self._align = 'l'  # Default alignment
+    
+    @property
+    def align(self):
+        """Get alignment setting"""
+        return self._align
+    
+    @align.setter
+    def align(self, value):
+        """Set alignment (for compatibility, stored but not used in HTML output)"""
+        if isinstance(value, dict):
+            self._align = value
+        else:
+            # Set all fields to the same alignment
+            self._align = value
+    
+    def get_html_string(self):
+        """Generate HTML table string using tabulate"""
+        # Convert to HTML table format
+        html_table = tabulate(self.rows, headers=self.field_names, tablefmt="html", showindex=False)
+        return html_table
+    
+    def __str__(self):
+        """Generate plain text table string"""
+        return tabulate(self.rows, headers=self.field_names, tablefmt="grid", showindex=False)
 
 
 class OBConnector(object):
@@ -55,13 +91,13 @@ class OBConnector(object):
 
     def __enter__(self):
         """Ensures the database connection is open upon entering the 'with' block."""
-        self._connect_to_db()
+        self._connect_db()
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
         """Automatically closes the database connection when exiting the 'with' block."""
-        if self.connection:
-            self.connection.close()
+        if self.conn:
+            self.conn.close()
 
     def _connect_db(self):
         try:
@@ -88,13 +124,23 @@ class OBConnector(object):
         except Exception as e:
             self.stdio.warn("set ob_query_timeout failed, error:{0}".format(e))
 
-    def execute_sql(self, sql):
+    def execute_sql(self, sql, params=None):
+        """
+        Execute SQL query and return results.
+
+        Args:
+            sql: SQL query string. Use %s placeholders for parameterized queries.
+            params: Optional tuple/list of parameters for parameterized queries.
+
+        Returns:
+            List of result tuples.
+        """
         if self.conn is None:
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
         cursor = self.conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql, params)
         ret = cursor.fetchall()
         cursor.close()
         return ret
@@ -122,34 +168,36 @@ class OBConnector(object):
             data = cursor.fetchall()
         return column_names, data
 
-    def execute_sql_return_cursor_dictionary(self, sql):
+    def execute_sql_return_cursor_dictionary(self, sql, params=None):
         if self.conn is None:
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
         cursor = self.conn.cursor(mysql.cursors.DictCursor)
-        cursor.execute(sql)
+        cursor.execute(sql, params)
         return cursor
 
-    def execute_sql_return_cursor(self, sql):
+    def execute_sql_return_cursor(self, sql, params=None):
         if self.conn is None:
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
         cursor = self.conn.cursor()
-        cursor.execute(sql)
+        cursor.execute(sql, params)
         return cursor
 
-    def execute_sql_pretty(self, sql):
+    def execute_sql_pretty(self, sql, params=None):
         if self.conn is None:
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
         cursor = self.conn.cursor()
-        cursor.execute(sql)
-        ret = from_db_cursor(cursor)
+        cursor.execute(sql, params)
+        # Replace from_db_cursor with manual fetching and TableResult wrapper
+        field_names = [col[0] for col in cursor.description] if cursor.description else []
+        rows = cursor.fetchall()
         cursor.close()
-        return ret
+        return TableResult(field_names, rows)
 
     def execute_display_cursor(self, business_sql):
         if self.conn is None:
@@ -162,7 +210,10 @@ class OBConnector(object):
             cursor.execute(business_sql)
 
             cursor.execute("select dbms_xplan.display_cursor(0, 'all')")
-            plan_result = from_db_cursor(cursor)
+            # Replace from_db_cursor with manual fetching and TableResult wrapper
+            field_names = [col[0] for col in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            plan_result = TableResult(field_names, rows)
             plan_result.align = 'l'
             cursor.close()
             return plan_result

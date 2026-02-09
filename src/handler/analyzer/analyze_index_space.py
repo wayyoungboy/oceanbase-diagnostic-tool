@@ -18,7 +18,7 @@
 
 
 from src.common.base_handler import BaseHandler
-from prettytable import PrettyTable
+# Removed PrettyTable import - now using BaseHandler._generate_summary_table
 from src.common.tool import StringUtils, Util
 from src.common.ob_connector import OBConnector
 from src.common.command import get_observer_version
@@ -63,27 +63,34 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
         table_name = self._get_option('table_name')
         index_name = self._get_option('index_name')
         column_names = self._get_option('column_names')
-        # get tenant id
-        tenant_data = self.sys_connector.execute_sql(f"select tenant_id from oceanbase.__all_tenant where tenant_name = '{tenant_name}';")
+        # get tenant id (parameterized)
+        tenant_data = self.sys_connector.execute_sql(
+            "select tenant_id from oceanbase.__all_tenant where tenant_name = %s", (tenant_name,))
         if len(tenant_data) == 0:
             raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
         self.tenant_id = tenant_data[0][0]
         if self.tenant_id is None:
             raise Exception(f"can not find tenant id by tenant name: {tenant_name}. Please check the tenant name.")
-        # get database id if database_name is provided
+        # get database id if database_name is provided (parameterized)
         if database_name is not None:
-            database_id_data = self.sys_connector.execute_sql(f"select database_id from oceanbase.__all_virtual_database where database_name = '{database_name}' and tenant_id = '{self.tenant_id}';")
+            database_id_data = self.sys_connector.execute_sql(
+                "select database_id from oceanbase.__all_virtual_database where database_name = %s and tenant_id = %s",
+                (database_name, self.tenant_id))
             if len(database_id_data) == 0:
                 raise Exception(f"can not find database id by database name: {database_name}. Please check the database name.")
             self.database_id = database_id_data[0][0]
             if self.database_id is None:
                 raise Exception(f"can not find database id by database name: {database_name}. Please check the database name.")
             self._log_verbose(f"database_id is {self.database_id}")
-        # get table id
+        # get table id (parameterized)
         if database_name is not None:
-            table_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name = '{table_name}' and tenant_id = '{self.tenant_id}' and database_id = '{self.database_id}';")
+            table_id_data = self.sys_connector.execute_sql(
+                "select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s and database_id = %s",
+                (table_name, self.tenant_id, self.database_id))
         else:
-            table_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name = '{table_name}' and tenant_id = '{self.tenant_id}';")
+            table_id_data = self.sys_connector.execute_sql(
+                "select table_id from oceanbase.__all_virtual_table where table_name = %s and tenant_id = %s",
+                (table_name, self.tenant_id))
         if len(table_id_data) == 0:
             if database_name is not None:
                 raise Exception(f"can not find table id by table name: {table_name} and database name: {database_name}. Please check the table name and database name.")
@@ -100,9 +107,12 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
                 raise Exception(f"can not find table id by table name: {table_name} and database name: {database_name}. Please check the table name and database name.")
             else:
                 raise Exception(f"can not find table id by table name: {table_name}. Please check the table name.")
-        # get index id
+        # get index id (parameterized)
         if index_name is not None:
-            index_id_data = self.sys_connector.execute_sql(f"select table_id from oceanbase.__all_virtual_table where table_name like '%{index_name}%' and data_table_id = '{self.table_id}' and tenant_id = '{self.tenant_id}';")
+            like_pattern = f"%{index_name}%"
+            index_id_data = self.sys_connector.execute_sql(
+                "select table_id from oceanbase.__all_virtual_table where table_name like %s and data_table_id = %s and tenant_id = %s",
+                (like_pattern, self.table_id, self.tenant_id))
             if len(index_id_data) == 0:
                 raise Exception(f"can not find index id by index name: {index_name}. Please check the index name.")
             self.index_id = index_id_data[0][0]
@@ -147,10 +157,12 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
                 self._log_verbose(f"execute_sql is {sql}")
                 self.index_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["index_columns_length"])
             elif len(self.column_names) != 0:
-                column_names_str = "','".join(self.column_names)
-                sql = f"select table_id, sum(data_length) as columns_length from oceanbase.__all_virtual_column_history where tenant_id = '{self.tenant_id}' and table_id = '{self.table_id}' and column_name in ('{column_names_str}');"
-                self._log_verbose(f"execute_sql is {sql}")
-                self.index_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql).fetchall()[0]["columns_length"])
+                # Use parameterized query for column names
+                placeholders = ','.join(['%s'] * len(self.column_names))
+                sql = f"select table_id, sum(data_length) as columns_length from oceanbase.__all_virtual_column_history where tenant_id = %s and table_id = %s and column_name in ({placeholders})"
+                params = tuple([self.tenant_id, self.table_id] + self.column_names)
+                self._log_verbose(f"execute_sql is {sql} with params {params}")
+                self.index_table_sum_of_data_length = int(self.sys_connector.execute_sql_return_cursor_dictionary(sql, params).fetchall()[0]["columns_length"])
             else:
                 raise Exception("please specify an index or column.")
 
@@ -201,11 +213,11 @@ class AnalyzeIndexSpaceHandler(BaseHandler):
 
     def export_report_table(self):
         try:
-            report_index_space_tb = PrettyTable(["ip", "port", "estimated_index_space", "available_disk_space"])
-            report_index_space_tb.align["task_report"] = "l"
-            report_index_space_tb.title = "estimated-index-space-report"
+            headers = ["ip", "port", "estimated_index_space", "available_disk_space"]
+            rows = []
             for result in self.result_map_list:
-                report_index_space_tb.add_row([result["ip"], result["port"], result["estimated_index_space"], result["available_disk_space"]])
-            self._log_info(report_index_space_tb)
+                rows.append([result["ip"], result["port"], result["estimated_index_space"], result["available_disk_space"]])
+            # Use BaseHandler template method for summary table generation
+            self._generate_summary_table(headers, rows, "estimated-index-space-report")
         except Exception as e:
             raise Exception(f"export report {e}")

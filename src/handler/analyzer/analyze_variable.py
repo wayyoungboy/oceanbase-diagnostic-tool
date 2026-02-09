@@ -21,7 +21,7 @@ from src.common.tool import DirectoryUtil, TimeUtils, Util
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.ob_connector import OBConnector
 import csv
-from prettytable import PrettyTable
+# Removed PrettyTable import - now using BaseHandler._generate_summary_table
 import datetime
 from colorama import Fore, Style
 
@@ -141,7 +141,8 @@ class AnalyzeVariableHandler(BaseHandler):
                 file_variable_dict[key] = str(row[5])
                 if not last_gather_time:
                     last_gather_time = row[-1]
-        report_default_tb = PrettyTable(["VERSION", "TENANT_ID", "ZONE", "NAME", "LAST_VALUE", "CURRENT_VALUE"])
+        headers = ["VERSION", "TENANT_ID", "ZONE", "NAME", "LAST_VALUE", "CURRENT_VALUE"]
+        rows = []
         changed_variables_dict = dict()
         for key in db_variable_dict:
             if key in file_variable_dict and db_variable_dict[key] != file_variable_dict[key]:
@@ -155,7 +156,7 @@ class AnalyzeVariableHandler(BaseHandler):
             for row in db_variable_info:
                 key = str(row[1]) + '-' + str(row[3])
                 if k == key:
-                    report_default_tb.add_row([row[0], row[1], row[2], row[3], changed_variables_dict[key], row[5]])
+                    rows.append([row[0], row[1], row[2], row[3], changed_variables_dict[key], row[5]])
                     is_empty = False
 
                     # Build structured data for JSON output
@@ -175,18 +176,19 @@ class AnalyzeVariableHandler(BaseHandler):
             now = datetime.datetime.now()
             date_format = now.strftime("%Y-%m-%d-%H-%M-%S")
             file_name = f'{self.export_report_path}/variables_changed_{date_format}.table'
-            fp = open(file_name, 'a+', encoding="utf8")
-            fp.write(report_default_tb.get_string() + "\n")
-            fp.close()
+            # Use BaseHandler template method for summary table generation
+            table_str = self._generate_summary_table(headers, rows, "Variables Changed Report")
+            with open(file_name, 'a+', encoding="utf8") as fp:
+                fp.write(table_str + "\n")
             self._log_info(Fore.RED + f"Since {last_gather_time}, the following variables have changed：" + Style.RESET_ALL)
-            self._log_info(report_default_tb.get_string())
+            # Note: _generate_summary_table already logs the table, so we don't need to print again
             self._log_info("Analyze variables changed finished. For more details, please run cmd '" + Fore.YELLOW + f" cat {file_name} " + Style.RESET_ALL + "'")
 
             # Return structured JSON data in silent mode, table string otherwise
             if self.stdio and self.stdio.silent:
                 return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": structured_data, "file_name": file_name, "last_gather_time": last_gather_time})
             else:
-                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": report_default_tb.get_string()})
+                return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"result": table_str})
         else:
             self._log_info(f"Analyze variables changed finished. Since {last_gather_time}, No changes in variables")
             message = f"Since {last_gather_time}, No changes in variables"

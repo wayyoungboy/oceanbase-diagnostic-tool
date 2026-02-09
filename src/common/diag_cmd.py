@@ -120,6 +120,10 @@ class BaseCommand(object):
         self.parser.add_option('-v', '--verbose', action='callback', callback=self._set_verbose, help='Activate verbose output.')
         self.parser.add_option('--config_password', type="string", help='config password')
         self.parser.add_option('--inner_config', action='callback', type="str", callback=self._inner_config_change, help='change inner config. ')
+        # Global options (Phase 4.1 enhancement)
+        self.parser.add_option('--output', type='string', default='table', help='Output format: table, json, yaml, csv. Default: table')
+        self.parser.add_option('--quiet', action='store_true', default=False, help='Suppress non-essential output.')
+        self.parser.add_option('--no-color', action='store_true', default=False, help='Disable colored output.')
 
     def _set_verbose(self, *args, **kwargs):
         ROOT_IO.set_verbose_level(0xFFFFFFF)
@@ -247,6 +251,17 @@ class ObdiagOriginCommand(BaseCommand):
         self.args = self.preprocess_argv(self.args)
         return super(ObdiagOriginCommand, self).parse_command()
 
+    def _apply_global_options(self):
+        """Apply global options (--quiet, --no-color, --output) to ROOT_IO."""
+        quiet = Util.get_option(self.opts, 'quiet')
+        no_color = Util.get_option(self.opts, 'no_color')
+        if quiet:
+            ROOT_IO.set_silent(True)
+        if no_color:
+            # Disable colorama by resetting Fore/Style to empty strings
+            import colorama
+            colorama.init(strip=True)
+
     def start_check(self):
         current_work_path = os.getcwd()
         home_path = os.path.expanduser("~")
@@ -260,6 +275,7 @@ class ObdiagOriginCommand(BaseCommand):
 
     def do_command(self):
         self.parse_command()
+        self._apply_global_options()
         self.start_check()
         trace_id = uuid()
         ret = False

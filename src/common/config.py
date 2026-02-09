@@ -18,7 +18,8 @@
 from __future__ import absolute_import, division, print_function
 import os
 from src.common.file_crypto.file_crypto import FileEncryptor
-from src.common.tool import ConfigOptionsParserUtil, DirectoryUtil
+from src.common.utils.config_options_parser import ConfigOptionsParserUtil
+from src.common.utils.directory_util import DirectoryUtil
 from src.common.stdio import SafeStdio
 from src.common.config_schema import validate_config
 import oyaml as yaml

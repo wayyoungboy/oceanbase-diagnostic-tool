@@ -24,7 +24,7 @@ import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 
-from prettytable import PrettyTable
+# Note: PrettyTable import removed - using BaseHandler._generate_summary_table instead
 from src.common.base_handler import BaseHandler
 from src.common.constant import const
 from src.common.tool import FileUtil, TimeUtils
@@ -153,19 +153,20 @@ class GatherComponentLogHandler(BaseHandler):
             raise Exception(f"Invalid target option: '{self.target}'. Allowed values are: {', '.join(allowed_targets)}")
 
     def __check_store_dir(self):
-        """Validate and create store directory"""
+        """Validate and create store directory using BaseHandler template method"""
         if self.store_dir is None:
             self.store_dir = "./"
 
-        if not os.path.exists(self.store_dir):
-            self._log_warn(f'args --store_dir [{os.path.abspath(self.store_dir)}] incorrect: No such directory, Now create it')
-            os.makedirs(os.path.abspath(self.store_dir))
-
+        # Use BaseHandler template method for base directory
+        base_store_dir = self._init_store_dir(default=self.store_dir)
+        
         if not self.is_scene:
             target_dir = "obdiag_gather_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
-            self.store_dir = os.path.join(self.store_dir, target_dir)
+            self.store_dir = os.path.join(base_store_dir, target_dir)
             if not os.path.exists(self.store_dir):
-                os.makedirs(self.store_dir)
+                os.makedirs(self.store_dir, exist_ok=True)
+        else:
+            self.store_dir = base_store_dir
 
         self._log_verbose(f"store_dir rebase: {self.store_dir}")
 
@@ -210,10 +211,7 @@ class GatherComponentLogHandler(BaseHandler):
                 self.grep = [str(self.grep)]
 
     def __check_time_options(self):
-        """Validate and process time options"""
-        now_time = datetime.datetime.now()
-        time_format = '%Y-%m-%d %H:%M:%S'
-
+        """Validate and process time options using BaseHandler template method when possible"""
         # Case 1: Both from and to options provided
         if self.from_option is not None and self.to_option is not None:
             try:
@@ -227,13 +225,28 @@ class GatherComponentLogHandler(BaseHandler):
             self.from_time_str = self.from_option
             self.to_time_str = self.to_option
         else:
-            # Case 2 & 3: Calculate time range based on since_option or default
-            self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime(time_format)
-            if self.since_option:
-                since_seconds = TimeUtils.parse_time_length_to_sec(self.since_option)
-                self.from_time_str = (now_time - datetime.timedelta(seconds=since_seconds)).strftime(time_format)
+            # Case 2 & 3: Use BaseHandler template method for time range initialization
+            # Set options temporarily for template method
+            original_from = self._get_option('from') if hasattr(self, '_get_option') else None
+            original_to = self._get_option('to') if hasattr(self, '_get_option') else None
+            original_since = self._get_option('since') if hasattr(self, '_get_option') else None
+            
+            # Temporarily set options for template method
+            if not hasattr(self, 'context') or not hasattr(self.context, 'options'):
+                # Fallback to manual calculation if context not available
+                now_time = datetime.datetime.now()
+                time_format = '%Y-%m-%d %H:%M:%S'
+                self.to_time_str = (now_time + datetime.timedelta(minutes=1)).strftime(time_format)
+                if self.since_option:
+                    since_seconds = TimeUtils.parse_time_length_to_sec(self.since_option)
+                    self.from_time_str = (now_time - datetime.timedelta(seconds=since_seconds)).strftime(time_format)
+                else:
+                    self.from_time_str = (now_time - datetime.timedelta(minutes=self.DEFAULT_SINCE_MINUTES)).strftime(time_format)
             else:
-                self.from_time_str = (now_time - datetime.timedelta(minutes=self.DEFAULT_SINCE_MINUTES)).strftime(time_format)
+                # Use BaseHandler template method
+                self._init_time_range()
+                self.from_time_str = TimeUtils.timestamp_to_str(self.from_time)
+                self.to_time_str = TimeUtils.timestamp_to_str(self.to_time)
 
         # Print time range info
         self.__print_time_range_info()
@@ -341,7 +354,8 @@ class GatherComponentLogHandler(BaseHandler):
                 self._log_info(summary_tuples)
 
                 with open(os.path.join(self.store_dir, "result_summary.txt"), 'a', encoding='utf-8') as fileobj:
-                    fileobj.write(summary_tuples.get_string())
+                    # summary_tuples is now a string from _generate_summary_table
+                    fileobj.write(summary_tuples)
 
             except Exception as e:
                 self.stdio.exception(e)
@@ -418,20 +432,18 @@ class GatherComponentLogHandler(BaseHandler):
             self.stdio.stop_loading("succeed")
 
     def __get_overall_summary(self, node_summary_tuple):
-        """Generate overall summary from all node summary tuples"""
-        summary_tb = PrettyTable()
-        summary_tb.title = "Gather {0} Log Summary on {1}".format(self.target, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        """Generate overall summary from all node summary tuples using BaseHandler template method"""
         self._log_verbose(f"node_summary_tuple: {node_summary_tuple}")
-        summary_tb.field_names = ["Node", "Status", "Size", "info"]
-
-        try:
-            for tup in node_summary_tuple:
-                summary_tb.add_row([tup["node"], tup["success"], tup["file_size"], tup["info"]])
-        except Exception as e:
-            self._log_verbose(traceback.format_exc())
-            self._log_error(f"gather log __get_overall_summary failed: {str(e)}")
-
-        return summary_tb
+        
+        # Prepare data for template method
+        headers = ["Node", "Status", "Size", "info"]
+        rows = []
+        for tup in node_summary_tuple:
+            rows.append([tup["node"], tup["success"], tup["file_size"], tup["info"]])
+        
+        # Use BaseHandler template method
+        title = "Gather {0} Log Summary on {1}".format(self.target, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        return self._generate_summary_table(headers, rows, title)
 
     def open_all_file(self):
         """Open all gathered tar files for redact processing"""

@@ -19,7 +19,7 @@ import os
 import time
 import datetime
 
-import tabulate
+# Removed tabulate import - now using BaseHandler._generate_summary_table
 from src.common.base_handler import BaseHandler
 from src.common.obdiag_exception import OBDIAGFormatException
 from src.common.constant import const
@@ -297,8 +297,14 @@ class GatherObAdminHandler(BaseHandler):
         self._log_verbose(f"mv log info, run cmd = [{cmd}]")
         ssh_client.exec_cmd(cmd)
 
-    @staticmethod
-    def __get_overall_summary(node_summary_tuple, mode, is_zip_encrypt):
+    def __get_overall_summary(self, node_summary_tuple, mode, is_zip_encrypt):
+        """
+        Generate overall summary from gather tuples using BaseHandler template method.
+        :param node_summary_tuple: List of tuples (node, is_err, error_msg, file_size, password, consume_time, pack_path)
+        :param mode: "slog" or "clog"
+        :param is_zip_encrypt: Whether zip encryption is enabled
+        :return: Formatted summary table string
+        """
         summary_tab = []
         field_names = ["Node", "Status", "Size"]
         if is_zip_encrypt:
@@ -313,13 +319,13 @@ class GatherObAdminHandler(BaseHandler):
             pack_path = tup[6]
             try:
                 format_file_size = FileUtil.size_format(num=file_size, output_str=True)
-            except:
+            except Exception as e:
+                self._log_verbose("Failed to format file size {0}: {1}".format(file_size, e))
                 format_file_size = FileUtil.size_format(num=0, output_str=True)
             if is_zip_encrypt:
                 summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, tup[4], "{0} s".format(int(consume_time)), pack_path))
             else:
                 summary_tab.append((node, "Error:" + tup[2] if is_err else "Completed", format_file_size, "{0} s".format(int(consume_time)), pack_path))
-        if mode == "slog":
-            return "\nGather slog Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
-        else:
-            return "\nGather clog Summary:\n" + tabulate.tabulate(summary_tab, headers=field_names, tablefmt="grid", showindex=False)
+        # Use BaseHandler template method
+        title = "Gather slog Summary" if mode == "slog" else "Gather clog Summary"
+        return self._generate_summary_table(field_names, summary_tab, title)

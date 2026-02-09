@@ -192,3 +192,19 @@ class RemoteClient(SsherClient):
 
     def get_ip(self):
         return self.host_ip
+
+    def ssh_close(self):
+        """Close SSH connection and SFTP client."""
+        try:
+            if self._sftp_client:
+                self._sftp_client.close()
+                self._sftp_client = None
+        except Exception:
+            pass
+        
+        try:
+            if self._ssh_fd:
+                self._ssh_fd.close()
+                self._ssh_fd = None
+        except Exception:
+            pass

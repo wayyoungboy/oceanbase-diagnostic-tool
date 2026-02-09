@@ -19,7 +19,7 @@ import datetime
 import json
 import os
 import xmltodict
-import yaml
+import oyaml as yaml
 from textwrap import fill
 from src.common.base_handler import BaseHandler
 from src.common.command import (
@@ -27,7 +27,7 @@ from src.common.command import (
     get_observer_version,
 )
 import traceback
-from prettytable import PrettyTable
+# Removed PrettyTable import - now using BaseHandler._generate_summary_table
 from src.common.ob_connector import OBConnector
 from src.common.ssh_client.ssh import SshClient
 from src.handler.rca.plugins.gather import Gather_log
@@ -103,15 +103,12 @@ class RCAHandler(BaseHandler):
         except Exception as e:
             self._log_warn(f"RCAHandler init ob_connector failed: {str(e)}. If the scene need it, please check the conf")
 
-        # build report
-        store_dir = self._get_option("store_dir")
-        if store_dir is None:
-            # Default to current directory if not specified
-            store_dir = "./"
-
+        # build report using BaseHandler template method
+        base_store_dir = self._init_store_dir(default='./')
+        
         # Create timestamped subdirectory similar to gather
         target_dir = "obdiag_rca_{0}".format(TimeUtils.timestamp_to_filename_time(TimeUtils.get_current_us_timestamp()))
-        store_dir = os.path.join(store_dir, target_dir)
+        store_dir = os.path.join(base_store_dir, target_dir)
         if not os.path.exists(store_dir):
             os.makedirs(store_dir, exist_ok=True)
 
@@ -201,9 +198,10 @@ class RCAHandler(BaseHandler):
 
                 # Create scene-specific subdirectory within the timestamped directory
                 scene_subdir = f"obdiag_{scene_name}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
-                self.store_dir = os.path.expanduser(os.path.join(self.store_dir, scene_subdir))
+                self.store_dir = os.path.join(self.store_dir, scene_subdir)
+                # Ensure directory exists (BaseHandler._init_store_dir already created base dir)
                 if not os.path.exists(self.store_dir):
-                    os.makedirs(self.store_dir)
+                    os.makedirs(self.store_dir, exist_ok=True)
                 self.context.set_variable("store_dir", self.store_dir)
                 self._log_verbose(f"{scene_name} store_dir:{self.store_dir}")
                 # build gather_log
@@ -369,7 +367,8 @@ class Result:
                 if record.records is None or len(record.records) == 0:
                     continue
                 record_data = record.export_record_table()
-                f.write(record_data.get_string())
+                # export_record_table now returns a string from _generate_summary_table
+                f.write(record_data)
                 f.write("\n")
                 f.write(record.export_suggest())
                 f.write("\n")
@@ -595,11 +594,15 @@ class RCA_ResultRecord:
         return self.suggest
 
     def export_record_table(self):
-        record_tb = PrettyTable(["step", "info"])
-        record_tb.align["info"] = "l"
-        record_tb.title = "record"
+        """
+        Export record table using BaseHandler template method.
+        :return: Formatted table string
+        """
+        headers = ["step", "info"]
+        rows = []
         i = 0
         while i < len(self.records):
-            record_tb.add_row([i + 1, fill(self.records[i], width=100)])
+            rows.append([i + 1, fill(self.records[i], width=100)])
             i += 1
-        return record_tb
+        # Use BaseHandler template method for table generation
+        return self._generate_summary_table(headers, rows, "record")

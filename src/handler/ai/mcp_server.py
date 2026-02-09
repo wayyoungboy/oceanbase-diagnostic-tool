@@ -25,7 +25,7 @@ import sys
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
-import yaml
+import oyaml as yaml
 
 # Import handler invoker for direct handler calls
 try:

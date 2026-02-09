@@ -1,15 +1,50 @@
+# === IDE ===
 .idea/
 .vscode/
-venv/
-.venv/
-*.pyc
+*.swp
+*.swo
+*~
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
 *.egg-info/
 *.egg
 *site-packages/
+dist/
+build/
+.eggs/
+
+# === Virtual environments ===
+venv/
+.venv/
+env/
+
+# === Testing & Coverage ===
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# === Linting & Type checking ===
+.mypy_cache/
+.ruff_cache/
+
+# === Environment & Secrets ===
+.env
+.env.*
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Project specific ===
 dependencies/bin/obstack*
 obdiag_gather_pack_*
 obdiag_analyze_pack_*
 obdiag_rca*
 
-dev_doc/*
-*.md
+# === Dev docs (internal refactoring notes, not for release) ===
+dev_docs/

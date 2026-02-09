@@ -116,8 +116,19 @@ class TaskBase:
 
         ob_connector_pool = self.context.get_variable('check_obConnector_pool')
         if ob_connector_pool:
-            self.ob_connector = ob_connector_pool.get_connection()
-            self._using_pool_connection = True
+            # Support both old CheckOBConnectorPool and new OBConnectionPool interfaces
+            try:
+                # Try new OBConnectionPool interface first
+                if hasattr(ob_connector_pool, 'get_connection'):
+                    self.ob_connector = ob_connector_pool.get_connection()
+                else:
+                    # Fallback to old interface (should not happen after migration)
+                    self.ob_connector = ob_connector_pool.get_connection()
+                self._using_pool_connection = True
+            except Exception as e:
+                self.stdio.warn(f"Failed to get connection from pool: {e}")
+                self.ob_connector = None
+                self._using_pool_connection = False
         elif is_build_before:
             # For build_before cases, do not create database connection
             self.ob_connector = None
@@ -193,7 +204,16 @@ class TaskBase:
         if hasattr(self, '_using_pool_connection') and self._using_pool_connection:
             ob_connector_pool = self.context.get_variable('check_obConnector_pool')
             if ob_connector_pool and self.ob_connector:
-                ob_connector_pool.release_connection(self.ob_connector)
+                # Support both old CheckOBConnectorPool and new OBConnectionPool interfaces
+                try:
+                    # Try new OBConnectionPool interface first (release method)
+                    if hasattr(ob_connector_pool, 'release'):
+                        ob_connector_pool.release(self.ob_connector)
+                    elif hasattr(ob_connector_pool, 'release_connection'):
+                        # Fallback to old interface
+                        ob_connector_pool.release_connection(self.ob_connector)
+                except Exception as e:
+                    self.stdio.warn(f"Failed to release connection to pool: {e}")
                 self.ob_connector = None
 
         # Close SSH connections created for this task
