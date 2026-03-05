@@ -27,6 +27,24 @@ if getattr(sys, 'frozen', False):
     if os.path.exists(_site_packages) and _site_packages not in sys.path:
         sys.path.insert(0, _site_packages)
 
+    # PLY (sqlgpt_parser) fix: PyInstaller extracts to read-only /tmp/_MEIxxx/,
+    # causing "Couldn't open parser.out" and forcing slow LALR table regeneration.
+    # Use writable ~/.obdiag for outputdir/debugfile so PLY can cache tables.
+    _obdiag_home = os.path.expanduser(os.environ.get('OBDIAG_HOME', '~/.obdiag'))
+    os.makedirs(_obdiag_home, exist_ok=True)
+    try:
+        import ply.yacc
+        _orig_yacc = ply.yacc.yacc
+
+        def _yacc_with_writable_dir(*args, **kwargs):
+            kwargs.setdefault('outputdir', _obdiag_home)
+            kwargs.setdefault('debugfile', os.path.join(_obdiag_home, 'parser.out'))
+            return _orig_yacc(*args, **kwargs)
+
+        ply.yacc.yacc = _yacc_with_writable_dir
+    except Exception:
+        pass
+
 from src.common.diag_cmd import MainCommand
 from src.common.stdio import IO
 
