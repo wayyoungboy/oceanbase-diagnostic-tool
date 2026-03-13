@@ -17,20 +17,18 @@
 
 This module provides:
 - CheckHandler: Main handler that loads, filters, and executes check tasks concurrently
-- CheckOBConnectorPool: Connection pool for OceanBase database connections used by tasks
 """
 import os
-import queue
 import traceback
 import re
 import oyaml as yaml
 import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
-from src.common.ob_connector import OBConnector
 from src.common.scene import get_version_by_type
-from src.common.ssh_client.ssh_connection_manager import SSHConnectionManager
 from src.handler.check.check_report import TaskReport, CheckReport
+from src.handler.check.task_context import TaskExecutionContext, TaskExecutionResult
+from src.handler.check.task_executor import execute_task
 from src.common.tool import Util, DynamicLoading
 from src.common.tool import StringUtils
 
@@ -38,7 +36,7 @@ from src.common.tool import StringUtils
 # Constants
 # ---------------------------------------------------------------------------
 DEFAULT_MAX_WORKERS = 12
-MAX_DB_POOL_SIZE = 12
+DEFAULT_TASK_TIMEOUT = 60  # Default timeout for each task in seconds
 SUPPORTED_REPORT_TYPES = ("table", "json", "xml", "yaml", "html")
 TARGET_OBSERVER = "observer"
 TARGET_OBPROXY = "obproxy"
@@ -80,10 +78,10 @@ class CheckHandler:
 
         # Load config from inner_config
         self._load_config()
-        # Validate paths and init connection pools
+        # Validate paths (no connection pools needed for process pool)
         self._validate_paths()
-        self._init_connection_pool()
-        self._init_ssh_pool()
+        # Get version info (still needed for task filtering and context)
+        self._init_version_info()
 
     def _load_config(self):
         """Load configuration from context.inner_config."""
@@ -91,6 +89,7 @@ class CheckHandler:
         report_config = check_config.get("report", {})
 
         self.max_workers = check_config.get("max_workers", DEFAULT_MAX_WORKERS)
+        self.task_timeout = check_config.get("task_timeout", DEFAULT_TASK_TIMEOUT)
         self.work_path = os.path.expanduser(check_config.get("work_path") or "~/.obdiag/check")
         self.export_report_path = os.path.expanduser(report_config.get("report_path") or "./check_report/")
         self.export_report_type = report_config.get("export_type") or "table"
@@ -110,7 +109,7 @@ class CheckHandler:
         self.stdio.verbose(
             "CheckHandler input. ignore_version={0}, cluster={1}, nodes={2}, "
             "export_report_path={3}, export_report_type={4}, check_target_type={5}, "
-            "tasks_base_path={6}, input_env={7}".format(
+            "tasks_base_path={6}, input_env={7}, task_timeout={8}".format(
                 self.ignore_version,
                 self.cluster.get("ob_cluster_name") or self.cluster.get("obproxy_cluster_name"),
                 StringUtils.node_cut_passwd_for_log(self.nodes),
@@ -119,6 +118,7 @@ class CheckHandler:
                 self.check_target_type,
                 self.tasks_base_path,
                 self.input_env,
+                self.task_timeout,
             )
         )
 
@@ -141,54 +141,23 @@ class CheckHandler:
         self.tasks_base_path = tasks_path
         self.stdio.verbose("tasks_base_path is " + self.tasks_base_path)
 
-    def _init_connection_pool(self):
+    def _init_version_info(self):
         """
-        Initialize DB connection pool for tasks.
+        Initialize version info for task context.
 
-        Skipped when cases=build_before (pre-install check, no DB connection).
-        Pool size is capped at MAX_DB_POOL_SIZE to avoid overloading the database.
+        Version info is passed to subprocesses via TaskExecutionContext.
+        No connection pools needed - each subprocess creates its own connections.
         """
         if Util.get_option(self.options, "cases") == CASE_BUILD_BEFORE:
             self.stdio.warn("check cases is build_before, skip getting version")
             return
 
         self.version = get_version_by_type(self.context, self.check_target_type, self.stdio)
-        # Cache version in context for tasks and other modules
+        # Cache version in context for task context creation
         if self.check_target_type == TARGET_OBSERVER:
             self.context.set_variable("check_observer_version", self.version)
         elif self.check_target_type == TARGET_OBPROXY:
             self.context.set_variable("check_obproxy_version", self.version)
-        ob_connector_pool = None
-        try:
-            pool_size = min(self.max_workers, MAX_DB_POOL_SIZE)
-            ob_connector_pool = CheckOBConnectorPool(self.context, pool_size, self.cluster)
-        except Exception as e:
-            self.stdio.warn("obConnector init error: {0}".format(e))
-        finally:
-            self.context.set_variable("check_obConnector_pool", ob_connector_pool)
-
-    def _init_ssh_pool(self):
-        """
-        Initialize SSH connection pool for tasks.
-
-        Pool is shared across all check tasks. Config: max_connections_per_node, idle_timeout.
-        """
-        check_config = self.context.inner_config.get("check", {})
-        ssh_config = check_config.get("ssh_manager", {})
-        # Ensure at least max_workers connections per node to avoid pool exhaustion.
-        # Use max_workers * 2 for headroom when tasks hold multiple node connections.
-        configured = ssh_config.get("max_connections_per_node", 5)
-        min_required = self.max_workers * 2
-        max_per_node = max(configured, min_required)
-        idle_timeout = ssh_config.get("idle_timeout", 300)
-        ssh_manager = SSHConnectionManager(
-            self.context,
-            max_connections_per_node=max_per_node,
-            idle_timeout=idle_timeout,
-        )
-        self.context.set_variable("check_ssh_manager", ssh_manager)
-        self.context.set_variable("check_target_type", self.check_target_type)
-        self.stdio.verbose("SSHConnectionManager init: max_per_node={0}, idle_timeout={1}".format(max_per_node, idle_timeout))
 
     def handle(self):
         """
@@ -405,60 +374,12 @@ class CheckHandler:
         self.stdio.verbose("by cases name: {0}, get cases: {1}".format(package_name, package_data[package_name]))
         return tasks if tasks else []
 
-    def __execute_one(self, task_name):
-        """
-        Execute a single check task.
-
-        - Checks OS compatibility via task's supported_os
-        - Inits task (SSH, DB connector from pool), runs execute(), cleans up
-        """
-        task_instance = None
-        try:
-            self.stdio.verbose("execute task: {0}".format(task_name))
-            report = TaskReport(self.context, task_name)
-            task_cls = self.tasks[task_name]
-
-            # OS compatibility check
-            task_info = task_cls.get_task_info()
-            supported_os = task_info.get("supported_os")
-            if supported_os:
-                current_os = self.__get_current_os()
-                if current_os not in supported_os:
-                    self.stdio.verbose("Task {0} skipped: requires {1}, current OS is {2}".format(task_name, supported_os, current_os))
-                    report.add_warning("Task skipped: requires OS {0}, current is {1}".format(supported_os, current_os))
-                    return report
-
-            # Version check (skip when ignore_version or build_before)
-            if not self.ignore_version:
-                version = self.version
-                if not version and Util.get_option(self.options, "cases") != CASE_BUILD_BEFORE:
-                    self.stdio.error("can't get version")
-                    return report
-                self.cluster["version"] = version
-                self.stdio.verbose("cluster.version is {0}".format(version))
-
-            # Execute task (SSH connections created in TaskBase.init)
-            task_instance = task_cls
-            task_instance.init(self.context, report)
-            task_instance.execute()
-            self.stdio.verbose("execute task end: {0}".format(task_name))
-            return report
-        except Exception as e:
-            self.stdio.error("execute_one Exception: {0}".format(e))
-            raise Exception("execute_one Exception: {0}".format(e))
-        finally:
-            if task_instance and hasattr(task_instance, "cleanup"):
-                try:
-                    task_instance.cleanup()
-                except Exception as cleanup_error:
-                    self.stdio.warn("task cleanup error: {0}".format(cleanup_error))
-
     def __execute(self):
         """
         Execute all tasks concurrently and generate report.
 
-        Uses ThreadPoolExecutor. Failed tasks are caught by __execute_one_safe
-        and reported as failed instead of aborting the whole run.
+        Uses ProcessPoolExecutor with task-level timeout control.
+        Failed tasks are reported as failed instead of aborting the whole run.
         """
         try:
             task_count = len(self.tasks)
@@ -471,10 +392,11 @@ class CheckHandler:
             )
 
             actual_workers = min(self.max_workers, task_count) if task_count > 0 else 1
-            self.stdio.verbose("Starting concurrent execution with {0} workers".format(actual_workers))
+            self.stdio.verbose("Starting concurrent execution with {0} workers, task_timeout={1}s".format(actual_workers, self.task_timeout))
 
             task_names = list(self.tasks.keys())
             failed_tasks = []
+            timeout_tasks = []
             completed_count = 0
 
             # Start progress bar (skip in silent mode)
@@ -486,17 +408,43 @@ class CheckHandler:
                 )
 
             try:
-                with ThreadPoolExecutor(max_workers=actual_workers) as executor:
-                    future_to_task = {executor.submit(self.__execute_one_safe, name): name for name in task_names}
+                with ProcessPoolExecutor(max_workers=actual_workers) as executor:
+                    # Build task contexts and submit tasks
+                    future_to_task = {}
+                    for task_name in task_names:
+                        task_context = self._create_task_context(task_name)
+                        task_timeout = self._get_task_timeout(task_name)
+                        future = executor.submit(execute_task, task_context)
+                        future_to_task[future] = (task_name, task_timeout)
+
+                    # Collect results with timeout
                     for future in as_completed(future_to_task):
-                        task_name = future_to_task[future]
+                        task_name, task_timeout = future_to_task[future]
                         try:
-                            t_report = future.result()
-                            if t_report:
+                            # Wait for result with timeout
+                            result = future.result(timeout=task_timeout if task_timeout > 0 else None)
+                            if result:
+                                # Convert TaskExecutionResult to TaskReport
+                                t_report = self._result_to_report(result)
                                 self.report.add_task_report(t_report)
+                                if result.timeout:
+                                    timeout_tasks.append(task_name)
+                                elif not result.success:
+                                    failed_tasks.append(task_name)
+                        except TimeoutError:
+                            # Task timed out - cancel and report
+                            future.cancel()
+                            timeout_tasks.append(task_name)
+                            self.stdio.warn("Task {0} timed out after {1}s".format(task_name, task_timeout))
+                            report = TaskReport(self.context, task_name)
+                            report.add_fail("Task execution timed out after {0} seconds".format(task_timeout))
+                            self.report.add_task_report(report)
                         except Exception as e:
                             failed_tasks.append(task_name)
                             self.stdio.error("Task {0} failed: {1}".format(task_name, e))
+                            report = TaskReport(self.context, task_name)
+                            report.add_fail("Task execution failed: {0}".format(str(e)))
+                            self.report.add_task_report(report)
                         completed_count += 1
                         if not self.stdio.silent:
                             self.stdio.update_progressbar(completed_count)
@@ -504,6 +452,8 @@ class CheckHandler:
                 if not self.stdio.silent:
                     self.stdio.finish_progressbar()
 
+            if timeout_tasks:
+                self.stdio.warn("The following tasks timed out: {0}".format(timeout_tasks))
             if failed_tasks:
                 self.stdio.warn("The following tasks failed: {0}".format(failed_tasks))
 
@@ -511,21 +461,103 @@ class CheckHandler:
             return self.report.report_tobeMap()
         except Exception as e:
             self.stdio.error("Report error: {0}".format(e))
+            self.stdio.verbose(traceback.format_exc())
             raise Exception("Report error: {0}".format(e))
         finally:
             self.__cleanup()
 
-    def __execute_one_safe(self, task_name):
+    def _create_task_context(self, task_name: str) -> TaskExecutionContext:
         """
-        Thread-safe wrapper: catches exceptions and returns failed report instead of raising.
+        Create a serializable task execution context for the given task.
+
+        Args:
+            task_name: Name of the task (e.g., "system.python_version")
+
+        Returns:
+            TaskExecutionContext with all necessary configuration
         """
+        task_cls = self.tasks[task_name]
+
+        # Get the module path for the task
+        # task_name format: "folder.task_file" e.g., "system.python_version"
+        parts = task_name.split(".")
+        folder_name = parts[0] if len(parts) > 1 else ""
+        task_file_name = parts[-1] if parts else task_name
+
+        # Build the module path
+        module_path = os.path.join(self.tasks_base_path, folder_name)
+
+        # Convert options from Values to dict
+        options_dict = {}
+        if self.options:
+            for key in dir(self.options):
+                if not key.startswith('_'):
+                    options_dict[key] = getattr(self.options, key)
+
+        return TaskExecutionContext(
+            task_name=task_name,
+            task_module_path=module_path,
+            task_class_name=task_file_name,
+            cluster_config=self.cluster.copy() if self.cluster else {},
+            obproxy_config=self.context.obproxy_config.copy() if self.context.obproxy_config else {},
+            inner_config=self.context.inner_config.copy() if self.context.inner_config else {},
+            options=options_dict,
+            observer_version=self.version if self.check_target_type == TARGET_OBSERVER else None,
+            obproxy_version=self.version if self.check_target_type == TARGET_OBPROXY else None,
+            check_target_type=self.check_target_type,
+            timeout=self._get_task_timeout(task_name),
+            env=self.input_env,
+        )
+
+    def _get_task_timeout(self, task_name: str) -> int:
+        """
+        Get the timeout for a specific task.
+
+        Task-level timeout (from get_task_info) takes precedence over global default.
+
+        Args:
+            task_name: Name of the task
+
+        Returns:
+            Timeout in seconds, 0 means no timeout
+        """
+        default_timeout = self.task_timeout
+
         try:
-            return self.__execute_one(task_name)
+            task_cls = self.tasks.get(task_name)
+            if task_cls:
+                task_info = task_cls.get_task_info()
+                if task_info and "timeout" in task_info:
+                    return task_info["timeout"]
         except Exception as e:
-            self.stdio.error("execute_one_safe Exception for task {0}: {1}".format(task_name, e))
-            report = TaskReport(self.context, task_name)
-            report.add_fail("Task execution failed: {0}".format(str(e)))
-            return report
+            self.stdio.verbose("Failed to get task info for {0}: {1}".format(task_name, e))
+
+        return default_timeout
+
+    def _result_to_report(self, result: TaskExecutionResult) -> TaskReport:
+        """
+        Convert TaskExecutionResult from subprocess to TaskReport.
+
+        Args:
+            result: TaskExecutionResult from subprocess execution
+
+        Returns:
+            TaskReport for the main report
+        """
+        report = TaskReport(self.context, result.task_name)
+        for msg in result.warning:
+            if msg not in report.warning:
+                report.warning.append(msg)
+        for msg in result.critical:
+            if msg not in report.critical:
+                report.critical.append(msg)
+        for msg in result.fail:
+            if msg not in report.fail:
+                report.fail.append(msg)
+        for msg in result.normal:
+            if msg not in report.normal:
+                report.normal.append(msg)
+        return report
 
     def __get_current_os(self):
         """Return current OS: 'linux', 'darwin', or 'unknown'."""
@@ -539,62 +571,6 @@ class CheckHandler:
         return "unknown"
 
     def __cleanup(self):
-        """Cleanup after check execution. Close SSH connection pool."""
-        ssh_manager = self.context.get_variable("check_ssh_manager")
-        if ssh_manager:
-            try:
-                ssh_manager.close_all()
-            except Exception as e:
-                self.stdio.warn("SSH pool cleanup error: {0}".format(e))
+        """Cleanup after check execution."""
+        # No shared connection pools to clean up - each subprocess manages its own connections
         self.stdio.verbose("Check execution cleanup completed")
-
-
-class CheckOBConnectorPool:
-    """
-    Connection pool for OceanBase database connections.
-
-    Used by check tasks to avoid creating a new connection per task.
-    Tasks get/release connections via get_connection/release_connection.
-    """
-
-    def __init__(self, context, max_size, cluster):
-        """
-        Args:
-            context: HandlerContext
-            max_size: Max connections in pool
-            cluster: Cluster config with db_host, db_port, tenant_sys
-        """
-        self.max_size = max_size
-        self.cluster = cluster
-        self.connections = queue.Queue(maxsize=max_size)
-        self.stdio = context.stdio
-        try:
-            for _ in range(max_size):
-                conn = OBConnector(
-                    context=context,
-                    ip=self.cluster.get("db_host"),
-                    port=self.cluster.get("db_port"),
-                    username=self.cluster.get("tenant_sys", {}).get("user"),
-                    password=self.cluster.get("tenant_sys", {}).get("password"),
-                    timeout=10000,
-                )
-                self.connections.put(conn)
-            self.stdio.verbose("CheckOBConnectorPool init success")
-        except Exception as e:
-            self.stdio.error("CheckOBConnectorPool init fail: {0}".format(e))
-
-    def get_connection(self):
-        """Get a connection from the pool. Blocks if pool is empty."""
-        try:
-            return self.connections.get()
-        except Exception as e:
-            self.stdio.error("get connection fail: {0}".format(e))
-            return None
-
-    def release_connection(self, conn):
-        """Release a connection back to the pool."""
-        if conn is not None:
-            try:
-                self.connections.put(conn)
-            except Exception:
-                pass

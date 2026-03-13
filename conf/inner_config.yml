@@ -24,6 +24,7 @@ check:
   ignore_version: false
   work_path: "~/.obdiag/check"
   max_workers: 12
+  task_timeout: 60  # Default timeout for each task in seconds, 0 means no limit
   ssh_manager:
     max_connections_per_node: 12
     idle_timeout: 300

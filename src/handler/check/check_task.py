@@ -76,11 +76,12 @@ class TaskBase:
         # get ob_cluster
         self.ob_cluster = self.context.cluster_config
 
-        # Get SSH connections from pool (shared across tasks).
-        # Only request nodes for current check_target_type to avoid pool exhaustion:
-        # obproxy tasks should not request observer nodes (and vice versa).
-        ssh_manager = self.context.get_variable("check_ssh_manager")
-        check_target_type = self.context.get_variable("check_target_type") or "observer"
+# Get SSH connections from pool (shared across tasks in thread-pool mode)
+        # In process-pool mode, ssh_manager is None and connections are created separately
+        ssh_manager = self.context.get_variable("check_ssh_manager") if hasattr(self.context, 'get_variable') else None
+        check_target_type = self.context.get_variable("check_target_type") if hasattr(self.context, 'get_variable') else None
+        if not check_target_type:
+            check_target_type = "observer"
 
         if check_target_type == "observer":
             observer_nodes_config = self.context.cluster_config.get("servers")
@@ -95,7 +96,7 @@ class TaskBase:
                 self.observer_nodes = []
 
         if check_target_type == "obproxy":
-            obproxy_nodes_config = self.context.obproxy_config.get("servers")
+            obproxy_nodes_config = self.context.obproxy_config.get("servers") if hasattr(self.context, 'obproxy_config') else None
             if obproxy_nodes_config:
                 self.obproxy_nodes = []
                 for node in obproxy_nodes_config:
@@ -107,20 +108,21 @@ class TaskBase:
                 self.obproxy_nodes = []
 
         # Check if this is build_before case (should not create DB connection or get version)
-        cases_option = Util.get_option(self.context.options, 'cases')
+        cases_option = Util.get_option(self.context.options, 'cases') if hasattr(self.context, 'options') else None
         is_build_before = cases_option == "build_before"
 
         # Reuse observer_version from context if available
         # For build_before cases, do not get observer version
         if is_build_before:
             self.observer_version = None
-            self.stdio.verbose("cases is build_before, skip getting observer version")
+            if self.stdio:
+                self.stdio.verbose("cases is build_before, skip getting observer version")
         else:
             # Prefer context cache, then cluster_config, then query
-            self.observer_version = self.context.get_variable("check_observer_version") or ""
+            self.observer_version = self.context.get_variable("check_observer_version") if hasattr(self.context, 'get_variable') else None
             if not self.observer_version:
                 self.observer_version = self.context.cluster_config.get("version", "")
-            if not self.observer_version:
+            if not self.observer_version and self.stdio:
                 try:
                     self.observer_version = get_observer_version(self.context)
                 except Exception as e:
@@ -128,8 +130,7 @@ class TaskBase:
 
         # Reuse ob_connector from connection pool if available
         # For build_before cases, do not create database connection
-
-        ob_connector_pool = self.context.get_variable('check_obConnector_pool')
+        ob_connector_pool = self.context.get_variable('check_obConnector_pool') if hasattr(self.context, 'get_variable') else None
         if ob_connector_pool:
             self.ob_connector = ob_connector_pool.get_connection()
             self._using_pool_connection = True
@@ -137,7 +138,8 @@ class TaskBase:
             # For build_before cases, do not create database connection
             self.ob_connector = None
             self._using_pool_connection = False
-            self.stdio.verbose("cases is build_before, skip creating database connection")
+            if self.stdio:
+                self.stdio.verbose("cases is build_before, skip creating database connection")
         else:
             # Fallback: create new connector if pool not available
             from src.common.ob_connector import OBConnector
@@ -155,31 +157,35 @@ class TaskBase:
         # get obproxy version (only once, reuse if available)
         if check_target_type == "obproxy":
             if self.obproxy_nodes is None or len(self.obproxy_nodes) == 0:
-                self.stdio.verbose("obproxy_nodes is None. So set obproxy_version and obproxy_full_version to None")
+                if self.stdio:
+                    self.stdio.verbose("obproxy_nodes is None. So set obproxy_version and obproxy_full_version to None")
             else:
                 try:
                     self.obproxy_version = get_obproxy_version(self.context)
                 except Exception as e:
-                    self.stdio.error("get obproxy_version fail: {0}".format(e))
+                    if self.stdio:
+                        self.stdio.error("get obproxy_version fail: {0}".format(e))
                 try:
                     self.obproxy_full_version = get_obproxy_full_version(self.context)
                 except Exception as e:
-                    self.stdio.error("get obproxy_full_version fail: {0}".format(e))
+                    if self.stdio:
+                        self.stdio.error("get obproxy_full_version fail: {0}".format(e))
 
     def cleanup(self):
         """
         Cleanup resources after task execution.
         Release DB and SSH connections back to their pools.
+        In process-pool mode, connections are closed directly instead of released to pool.
         """
-        # Release database connection back to pool
+        # Release database connection back to pool (only in thread-pool mode)
         if hasattr(self, "_using_pool_connection") and self._using_pool_connection:
-            ob_connector_pool = self.context.get_variable("check_obConnector_pool")
+            ob_connector_pool = self.context.get_variable("check_obConnector_pool") if hasattr(self.context, 'get_variable') else None
             if ob_connector_pool and self.ob_connector:
                 ob_connector_pool.release_connection(self.ob_connector)
                 self.ob_connector = None
 
-        # Release SSH connections back to pool (do not close, they are reused)
-        ssh_manager = self.context.get_variable("check_ssh_manager")
+        # Release SSH connections back to pool (only in thread-pool mode)
+        ssh_manager = self.context.get_variable("check_ssh_manager") if hasattr(self.context, 'get_variable') else None
         if ssh_manager:
             if hasattr(self, "observer_nodes") and self.observer_nodes:
                 for node in self.observer_nodes:
@@ -191,6 +197,25 @@ class TaskBase:
                     ssher = node.get("ssher")
                     if ssher:
                         ssh_manager.release_connection(ssher)
+
+        # In process-pool mode, close SSH connections directly
+        if not ssh_manager:
+            if hasattr(self, "observer_nodes") and self.observer_nodes:
+                for node in self.observer_nodes:
+                    ssher = node.get("ssher")
+                    if ssher and hasattr(ssher, "ssh_close"):
+                        try:
+                            ssher.ssh_close()
+                        except Exception:
+                            pass
+            if hasattr(self, "obproxy_nodes") and self.obproxy_nodes:
+                for node in self.obproxy_nodes:
+                    ssher = node.get("ssher")
+                    if ssher and hasattr(ssher, "ssh_close"):
+                        try:
+                            ssher.ssh_close()
+                        except Exception:
+                            pass
 
     def execute(self):
         """
