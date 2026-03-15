@@ -19,6 +19,7 @@ import shutil
 import tarfile
 
 from src.common.import_module import import_modules
+from src.common.paths import get_resource_path
 import multiprocessing as mp
 
 
@@ -38,8 +39,8 @@ class Redact:
         # Try to load from plugins directory first, then from user directory
         self.all_redact = {}
 
-        # Try to load from plugins directory
-        plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "plugins", "gather", "redact")
+        # Try to load from plugins directory (using paths module for bundled support)
+        plugins_dir = get_resource_path('plugins', 'gather/redact')
         if os.path.exists(plugins_dir):
             try:
                 self.stdio.verbose("Trying to import redact modules from plugins directory: {0}".format(plugins_dir))

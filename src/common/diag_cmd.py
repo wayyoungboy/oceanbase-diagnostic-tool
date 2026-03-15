@@ -1259,6 +1259,30 @@ class ObdiagConfigCommand(ObdiagOriginCommand):
         return obdiag.config(self.opts)
 
 
+class ObdiagInitCommand(ObdiagOriginCommand):
+
+    def __init__(self):
+        super(ObdiagInitCommand, self).__init__('init', 'Initialize obdiag by extracting bundled resources to ~/.obdiag')
+        self.parser.add_option(
+            '--force',
+            action='store_true',
+            help='Force re-initialization even if already initialized',
+        )
+        self.parser.add_option(
+            '--skip-backup',
+            action='store_true',
+            help='Skip backing up existing configuration files',
+        )
+
+    def init(self, cmd, args):
+        super(ObdiagInitCommand, self).init(cmd, args)
+        self.parser.set_usage('%s [options]' % self.prev_cmd)
+        return self
+
+    def _do_command(self, obdiag):
+        return obdiag.init(self.opts)
+
+
 class ObdiagUpdateCommand(ObdiagOriginCommand):
 
     def __init__(self):
@@ -1444,6 +1468,7 @@ class MainCommand(MajorCommand):
         self.register_command(ObdiagCheckCommand())
         self.register_command(ObdiagRCACommand())
         self.register_command(ObdiagConfigCommand())
+        self.register_command(ObdiagInitCommand())
         self.register_command(ObdiagUpdateCommand())
         self.register_command(ToolCommand())
         self.parser.version = get_obdiag_version()

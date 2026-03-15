@@ -28,6 +28,7 @@ from src.common.command import SshClient
 from src.handler.base_shell_handler import BaseShellHandler
 from src.common.tool import TimeUtils
 from src.common.tool import Util
+from src.common.paths import get_obstack_path
 from src.common.tool import DirectoryUtil
 from src.common.tool import FileUtil
 from src.common.tool import StringUtils
@@ -147,19 +148,15 @@ class GatherObstack2Handler(BaseShellHandler):
         is_need_install_obstack = self.__is_obstack_exists(ssh_client)
         if is_need_install_obstack:
             self.stdio.verbose("There is no obstack2 on the host {0}. It needs to be installed. " "Please wait a moment ...".format(remote_ip))
-            if getattr(sys, 'frozen', False):
-                absPath = os.path.dirname(sys.executable)
-            else:
-                absPath = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
             # check node is x86_64 or aarch64
             node_arch = ssh_client.exec_cmd("arch").strip()
             if node_arch == "aarch64":
-                obstack2_local_stored_full_path = os.path.join(absPath, const.OBSTACK2_LOCAL_STORED_PATH_AARCH64)
+                obstack2_local_stored_full_path = get_obstack_path('aarch64')
             elif node_arch == "x86_64":
-                obstack2_local_stored_full_path = os.path.join(absPath, const.OBSTACK2_LOCAL_STORED_PATH_X86_64)
+                obstack2_local_stored_full_path = get_obstack_path('x86_64')
             else:
                 self.stdio.warn("node:{1} arch is {0} not support gather obstack. obdiag will try use obstack_x86 to gather info".format(node_arch, ssh_client.get_name()))
-                obstack2_local_stored_full_path = os.path.join(absPath, const.OBSTACK2_LOCAL_STORED_PATH_X86_64)
+                obstack2_local_stored_full_path = get_obstack_path('x86_64')
             # issue #133 . Check libtinfo.so.5 is existing
             self.stdio.verbose("Check node:{0} libtinfo.so.5 is existing or not".format(ssh_client.get_name()))
             libtinfo_info = ssh_client.exec_cmd("ldconfig -p | grep libtinfo.so.5")

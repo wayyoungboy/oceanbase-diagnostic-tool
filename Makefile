@@ -16,7 +16,7 @@ OBUTILS_X64_URL := https://obbusiness-private.oss-cn-shanghai.aliyuncs.com/downl
 PYTHON_MIN_MAJOR := 3
 PYTHON_MIN_MINOR := 11
 
-.PHONY: all help pack clean init format download_obstack clean_rpm check_python install_requirements copy_files backup_obdiag build_update_package
+.PHONY: all help pack pack_ubuntu pack_macos clean init format download_obstack clean_rpm clean_deb check_python install_requirements copy_files backup_obdiag build_update_package
 
 # Default target
 all: help
@@ -26,10 +26,13 @@ help:
 	@echo "Usage: make <target>"
 	@echo ""
 	@echo "Targets:"
-	@echo "  pack                 - Build RPM package"
+	@echo "  pack                 - Build RPM package (all-in-one)"
+	@echo "  pack_ubuntu          - Build Ubuntu/Debian package (all-in-one)"
+	@echo "  pack_macos           - Build macOS binary (all-in-one)"
 	@echo "  build_update_package - Build plugins update package (data.tar + version.yaml)"
 	@echo "  clean                - Clean result files (gather/analyze packs)"
 	@echo "  clean_rpm            - Clean old RPM build data"
+	@echo "  clean_deb            - Clean old Debian build data"
 	@echo "  init                 - Initialize development environment"
 	@echo "  format               - Format code with black"
 	@echo "  download_obstack     - Download obstack tools"
@@ -205,17 +208,42 @@ uninstall_macos:
 	@$(PROJECT_PATH)/macos/uninstall.sh
 
 # Build macOS package (requires Python 3.11+)
+# All-in-one binary with bundled resources
 pack_macos:
-	@echo "Building macOS package (version: $(OBDIAG_VERSION))..."
+	@echo "Building macOS all-in-one package (version: $(OBDIAG_VERSION))..."
 	@command -v pyinstaller >/dev/null 2>&1 || pip3 install pyinstaller
 	@mkdir -p $(PROJECT_PATH)/dist_macos
 	@cp -f src/main.py src/obdiag.py
 	@sed -i '' "s/<B_TIME>/$$(date)/" ./src/common/version.py 2>/dev/null || sed -i "s/<B_TIME>/$$(date)/" ./src/common/version.py
 	@sed -i '' "s/<VERSION>/$(OBDIAG_VERSION)/" ./src/common/version.py 2>/dev/null || sed -i "s/<VERSION>/$(OBDIAG_VERSION)/" ./src/common/version.py
-	@pyinstaller --hidden-import=decimal --hidden-import=pyzipper -p $(PROJECT_PATH)/src -F src/obdiag.py --distpath $(PROJECT_PATH)/dist_macos
+	@pyinstaller --hidden-import=decimal --hidden-import=pyzipper \
+		--add-data "plugins:plugins" \
+		--add-data "conf:conf" \
+		--add-data "example:example" \
+		--add-data "resources:resources" \
+		--add-data "dependencies/bin:dependencies/bin" \
+		-p $(PROJECT_PATH)/src -F src/obdiag.py --distpath $(PROJECT_PATH)/dist_macos
 	@rm -f src/obdiag.py
-	@echo "macOS binary built: $(PROJECT_PATH)/dist_macos/obdiag"
 	@echo ""
-	@echo "To create a distributable package:"
-	@echo "  1. Copy dist_macos/obdiag, plugins/, conf/, example/ to a directory"
-	@echo "  2. Create a DMG or ZIP file for distribution"
+	@echo "=============================================="
+	@echo "macOS all-in-one binary built successfully!"
+	@echo "Binary: $(PROJECT_PATH)/dist_macos/obdiag"
+	@echo ""
+	@echo "To install, run:"
+	@echo "  ./dist_macos/obdiag init"
+	@echo "=============================================="
+
+# Build Ubuntu/Debian package (all-in-one)
+# Note: requires dpkg-dev package, install with: sudo apt install dpkg-dev -y
+pack_ubuntu: download_obstack
+	@echo "Building Ubuntu/Debian all-in-one package (version: $(OBDIAG_VERSION))..."
+	@command -v dpkg-deb >/dev/null 2>&1 || (echo "Error: dpkg-deb not found. Please install: sudo apt install dpkg-dev -y" && exit 1)
+	@chmod +x $(PROJECT_PATH)/ubuntu/build_ubuntu.sh
+	@$(PROJECT_PATH)/ubuntu/build_ubuntu.sh $(OBDIAG_VERSION) $(RELEASE)
+
+# Clean old Debian build data
+clean_deb:
+	@echo "Cleaning old Debian build data..."
+	@rm -rf ./build_deb ./build ./dist
+	@rm -f ./*.deb
+	@echo "Clean old Debian build data success"

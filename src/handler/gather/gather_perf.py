@@ -28,6 +28,7 @@ import tabulate
 from src.common.command import get_observer_pid, get_obproxy_pid, mkdir, zip_dir, get_file_size, download_file, delete_file_force, is_empty_dir, is_empty_file
 from src.common.command import SshClient
 from src.common.constant import const
+from src.common.paths import get_flamegraph_scripts
 from src.handler.base_shell_handler import BaseShellHandler
 from src.common.tool import Util
 from src.common.tool import DirectoryUtil
@@ -273,22 +274,9 @@ class GatherPerfHandler(BaseShellHandler):
         Get stackcollapse-perf.pl and flamegraph.pl paths from const (dependencies/bin/).
         Returns (stackcollapse_pl, flamegraph_pl) or (None, None) if not found.
         """
-        # Get obdiag installation directory (similar to gather_obstack2.py)
-        if getattr(sys, 'frozen', False):
-            # PyInstaller packaged environment
-            absPath = os.path.dirname(sys.executable)
-        else:
-            # Development environment
-            absPath = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
-        # Build absolute paths based on installation directory
-        # Remove leading './' from relative paths
-        stackcollapse_rel_path = const.FLAMEGRAPH_STACKCOLLAPSE_PL.lstrip('./')
-        flamegraph_rel_path = const.FLAMEGRAPH_FLAMEGRAPH_PL.lstrip('./')
-        stackcollapse_pl = os.path.join(absPath, stackcollapse_rel_path)
-        flamegraph_pl = os.path.join(absPath, flamegraph_rel_path)
-
-        if os.path.isfile(stackcollapse_pl) and os.path.isfile(flamegraph_pl):
+        # Get FlameGraph scripts using paths module
+        stackcollapse_pl, flamegraph_pl = get_flamegraph_scripts()
+        if stackcollapse_pl and flamegraph_pl:
             return (stackcollapse_pl, flamegraph_pl)
         return (None, None)
 

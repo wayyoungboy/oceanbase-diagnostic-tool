@@ -595,6 +595,21 @@ class ObdiagHome(object):
             handler = RcaScenesListHandler(context=self.context)
             return handler.handle()
 
+    def init(self, opts):
+        """Initialize obdiag by extracting bundled resources to ~/.obdiag."""
+        from src.handler.init.init import init_handler
+
+        self.set_offline_context('init', 'init')
+        force = getattr(opts, 'force', False)
+        skip_backup = getattr(opts, 'skip_backup', False)
+
+        success = init_handler(self.context, force=force, skip_backup=skip_backup)
+
+        if success:
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"msg": "Initialization completed successfully"})
+        else:
+            return ObdiagResult(ObdiagResult.INPUT_ERROR_CODE, error_data='Initialization failed')
+
     def update(self, opts):
         config = self.config_manager
         if not config:
