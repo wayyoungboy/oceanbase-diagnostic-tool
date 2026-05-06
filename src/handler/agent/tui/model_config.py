@@ -1,3 +1,15 @@
+#!/usr/bin/env python
+# -*- coding: UTF-8 -*-
+# Copyright (c) 2022 OceanBase
+# OceanBase Diagnostic Tool is licensed under Mulan PSL v2.
+# You can use this software according to the terms and conditions of the Mulan PSL v2.
+# You may obtain a copy of Mulan PSL v2 at:
+#          http://license.coscl.org.cn/MulanPSL2
+# THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+# EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+# MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+# See the Mulan PSL v2 for more details.
+
 """Model configuration management.
 
 Handles loading and saving model configuration from TOML files, providing a
@@ -52,13 +64,6 @@ def resolve_env_var(name: str) -> str | None:
         prefixed = f"{_ENV_PREFIX}{name}"
         if prefixed in os.environ:
             val = os.environ[prefixed]
-            if not val and os.environ.get(name):
-                logger.debug(  # lgtm[py/clear-text-logging-sensitive-data]
-                    "%s is set but empty, blocking non-empty %s. " "Unset %s to use the canonical variable.",
-                    prefixed,  # lgtm[py/clear-text-logging-sensitive-data]
-                    name,  # lgtm[py/clear-text-logging-sensitive-data]
-                    prefixed,  # lgtm[py/clear-text-logging-sensitive-data]
-                )
             return val or None
     return os.environ.get(name) or None
 
