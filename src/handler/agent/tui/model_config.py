@@ -53,11 +53,11 @@ def resolve_env_var(name: str) -> str | None:
         if prefixed in os.environ:
             val = os.environ[prefixed]
             if not val and os.environ.get(name):
-                logger.debug(
+                logger.debug(  # lgtm[py/clear-text-logging-sensitive-data]
                     "%s is set but empty, blocking non-empty %s. " "Unset %s to use the canonical variable.",
-                    prefixed,
-                    name,
-                    prefixed,
+                    prefixed,  # lgtm[py/clear-text-logging-sensitive-data]
+                    name,  # lgtm[py/clear-text-logging-sensitive-data]
+                    prefixed,  # lgtm[py/clear-text-logging-sensitive-data]
                 )
             return val or None
     return os.environ.get(name) or None
