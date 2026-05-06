@@ -92,7 +92,7 @@ def decrypt_skill_content(content: str) -> str:
         return content
     frontmatter, body = _split_frontmatter(content)
     # body is "\nOBDIAG_SKILL_ENCRYPTED:<token>\n" — strip whitespace to get token
-    token = body.strip()[len(_MARKER):]
+    token = body.strip()[len(_MARKER) :]
     decrypted_body = _fernet().decrypt(token.encode()).decode("utf-8")
     # decrypted_body starts with "\n" (the original body separator), so
     # frontmatter + decrypted_body reconstructs the original file exactly.
