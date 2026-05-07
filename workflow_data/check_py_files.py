@@ -34,7 +34,11 @@ def main():
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else '.'
     failed = []
-    for root, _, files in os.walk(target_dir):
+    for root, dirs, files in os.walk(target_dir):
+        # Skip third-party vendored directories (identified by their own LICENSE file)
+        if 'LICENSE' in files and os.path.abspath(root) != os.path.abspath(target_dir):
+            dirs[:] = []
+            continue
         for file in files:
             if file.endswith('.py'):
                 path = os.path.join(root, file)
