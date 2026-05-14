@@ -16,6 +16,7 @@
 @desc: Data models for the obdiag agent
 """
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -65,7 +66,7 @@ def discover_obcluster_configs() -> List[Dict[str, Any]]:
     for name in sorted(os.listdir(root), key=str.lower):
         if name.startswith("."):
             continue
-        if not (name.endswith(".yml") or name.endswith(".yaml")):
+        if not name.endswith(".yml"):
             continue
         path = os.path.join(root, name)
         if not os.path.isfile(path):
@@ -87,7 +88,7 @@ def discover_obcluster_configs() -> List[Dict[str, Any]]:
         )
 
     entries.sort(key=lambda e: (not e["is_default"], e["file_name"].lower()))
-    return entries
+    return [e for e in entries if e["has_obcluster"]]
 
 
 def _build_connector_from_cluster_config(
@@ -113,6 +114,7 @@ def _build_connector_from_cluster_config(
         password = ""
 
     if not db_host or not db_port or not username:
+        logging.getLogger(__name__).warning("Cannot build OBConnector: missing db_host=%s, db_port=%s, user=%s", db_host, db_port, username)
         return None
 
     try:
@@ -124,7 +126,8 @@ def _build_connector_from_cluster_config(
             password=password,
             timeout=100,
         )
-    except Exception:
+    except Exception as e:
+        logging.getLogger(__name__).warning("OBConnector failed to connect to %s:%s — %s", db_host, db_port, e)
         return None
 
 

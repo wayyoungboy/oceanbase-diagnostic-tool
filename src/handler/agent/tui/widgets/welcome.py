@@ -330,5 +330,6 @@ def build_welcome_footer(*, primary_color: str = theme.PRIMARY, tip: str | None 
         tip = random.choice(_TIPS)  # noqa: S311
     return Content.assemble(
         ("\nReady! Describe your OceanBase issue or ask for diagnostics.\n", primary_color),
+        ("Use /threads to resume a previous session. ", "dim"),
         (f"Tip: {tip}", "dim italic"),
     )

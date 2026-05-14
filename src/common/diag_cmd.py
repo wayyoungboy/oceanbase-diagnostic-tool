@@ -1318,18 +1318,28 @@ class ObdiagAgentCommand(ObdiagOriginCommand):
         super(ObdiagAgentCommand, self).__init__('agent', 'obdiag agent. Interactive diagnostic agent for obdiag (BETA)')
         self.parser.add_option('-c', type='string', help='obdiag custom config', default=os.path.expanduser('~/.obdiag/config.yml'))
         self.parser.add_option('--config', action="append", type="string", help='config options Format: --config key=value')
-        self.parser.add_option('-m', '--message', type='string', help='single-shot message to send to the agent', default=None)
-        self.parser.add_option('--resume', type='string', help='resume a previous session by ID (see "sessions" command)', default=None)
-        self.parser.add_option('-y', '--yolo', action='store_true', dest='yolo', help='auto-approve all tools (for testing with -m)', default=False)
+        self.parser.add_option('-n', '--non-interactive', type='string', dest='non_interactive_message', help='Run a single task non-interactively and exit', default=None)
+        self.parser.add_option('-q', '--quiet', action='store_true', dest='quiet', help='Clean output for piping (stdout = agent response only). Requires -n.', default=False)
+        self.parser.add_option('--no-stream', action='store_true', dest='no_stream', help='Buffer full response, write to stdout at once. Requires -n.', default=False)
+        self.parser.add_option('-r', '--resume', action='callback', callback=self._parse_resume, dest='resume_thread', help='Resume thread: -r for most recent, -r <ID> for specific thread', default=None)
+
+    @staticmethod
+    def _parse_resume(option, opt_str, value, parser):
+        """Callback for -r/--resume: bare -r means most recent, -r <ID> means specific thread."""
+        if parser.rargs and not parser.rargs[0].startswith('-'):
+            setattr(parser.values, option.dest, parser.rargs.pop(0))
+        else:
+            setattr(parser.values, option.dest, "__MOST_RECENT__")
 
     def init(self, cmd, args):
         super(ObdiagAgentCommand, self).init(cmd, args)
         self.parser.set_usage(
             '%s [options]\n\n'
             '  Interactive mode:   obdiag agent\n'
-            '  Single-shot mode:   obdiag agent -m "帮我巡检一下集群"\n'
-            '  Resume session:     obdiag agent --resume 20260313_142055\n'
-            '  Resume + message:   obdiag agent --resume 20260313_142055 -m "这些文件有多大"  (for testing)\n'
+            '  Non-interactive:    obdiag agent -n "帮我巡检一下集群"\n'
+            '  Quiet (pipe):       obdiag agent -n "检查集群状态" -q\n'
+            '  Resume (recent):    obdiag agent -r\n'
+            '  Resume (by ID):     obdiag agent -r 20260313_142055\n'
             '  Target cluster:     obdiag agent -c obdiag_test' % self.prev_cmd
         )
         return self

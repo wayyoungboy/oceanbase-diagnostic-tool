@@ -216,7 +216,8 @@ Your capabilities include:
 Multi-cluster support:
 - Default cluster config is ~/.obdiag/config.yml. Other configs are *.yml/*.yaml in the same directory.
 - When the user asks which clusters exist, call list_obdiag_clusters first.
-- Every diagnostic tool accepts an optional cluster_config_path parameter (short name or full path).
+- In interactive TUI, use `/use <short_name|full_path>` only when the user wants to switch the active cluster for the rest of the session.
+- For one-off diagnostics on another cluster, prefer passing cluster_config_path (short name or full path) to the tool instead of switching.
 
 Tool selection for gather operations:
 - gather_log: Observer-side logs only (observer/election/rootservice).
@@ -229,6 +230,11 @@ Tool selection for gather operations:
 After a gather completes, if the user asks to analyze logs:
 - Use ls and read_file on the gather output directory to locate and read relevant files, then summarize.
 - analyze_log is ONLY for OceanBase cluster observer-node log analysis.
+
+Path handling:
+- ALWAYS use absolute paths for config files, log files, and output directories. Never use relative paths like ./check_report or ./obdiag_rca.
+- When displaying paths to the user, show the fully resolved absolute path.
+- When passing cluster_config_path to tools, use absolute paths or short names (which are resolved internally).
 
 User experience guidelines:
 - Respond in the same language as the user's question.
@@ -277,12 +283,15 @@ class AiAgentHandler:
             create_obdiag_tools(config_path_getter, self.stdio) + create_db_tools(deps_getter) + create_config_gen_tools(self.stdio) + (create_knowledge_tools(lambda: config.oceanbase_knowledge_bearer_token) if config.oceanbase_knowledge_enabled else [])
         )
 
-        msg = Util.get_option(self.options, "m")
+        msg = Util.get_option(self.options, "non_interactive_message")
+        quiet = Util.get_option(self.options, "quiet", False)
+        no_stream = Util.get_option(self.options, "no_stream", False)
+        resume_thread = Util.get_option(self.options, "resume_thread")
 
         try:
             if msg:
-                return self._run_single_shot(msg, obdiag_tools, config)
-            return self._run_interactive(obdiag_tools, config)
+                return self._run_single_shot(msg, obdiag_tools, config, quiet=quiet, stream=not no_stream)
+            return self._run_interactive(obdiag_tools, config, resume_thread=resume_thread)
         finally:
             if self._deps:
                 self._deps.close()
@@ -291,15 +300,13 @@ class AiAgentHandler:
     # Interactive mode — full Textual TUI via vendored tui/
     # ------------------------------------------------------------------
 
-    def _run_interactive(self, obdiag_tools: list, config: AgentConfig) -> ObdiagResult:
+    def _run_interactive(self, obdiag_tools: list, config: AgentConfig, *, resume_thread: Optional[str] = None) -> ObdiagResult:
         from src.handler.agent.tui.agent import create_cli_agent
         from src.handler.agent.tui.app import run_textual_app
         from src.handler.agent.tui.config import create_model
         from src.handler.agent.tui.sessions import generate_thread_id, get_checkpointer
 
         async def _run() -> Any:
-            # create_model() reads [models].default / [models].recent from
-            # ~/.obdiag/config/agent.toml via deepagents-cli's ModelConfig.load()
             model_result = create_model()
             model_result.apply_to_settings()
             model = model_result.model
@@ -316,12 +323,29 @@ class AiAgentHandler:
                     extra_interrupt_on=obdiag_interrupt_on,
                     checkpointer=checkpointer,
                 )
-                thread_id = generate_thread_id()
+                thread_id = None if resume_thread else generate_thread_id()
+
+                def use_cluster(config_path: str) -> tuple[bool, str]:
+                    if self._deps is None:
+                        return False, "Agent dependencies are not initialized."
+                    ok, message = self._deps.switch_cluster(config_path)
+                    if ok:
+                        self._config_path_ref["v"] = self._deps.config_path
+                    return ok, message
+
+                def current_cluster_info() -> str:
+                    if self._deps is None:
+                        return "Agent dependencies are not initialized."
+                    return self._deps.current_cluster_info()
+
                 return await run_textual_app(
                     agent=agent,
                     backend=backend,
                     assistant_id=_ASSISTANT_ID,
                     thread_id=thread_id,
+                    resume_thread=resume_thread,
+                    use_cluster=use_cluster,
+                    current_cluster_info=current_cluster_info,
                 )
 
         try:
@@ -329,6 +353,9 @@ class AiAgentHandler:
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "Agent session ended", "thread_id": app_result.thread_id or ""})
         except KeyboardInterrupt:
             return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "Agent session interrupted"})
+        except (BrokenPipeError, OSError) as e:
+            _LOG.info("Terminal connection lost: %s", e)
+            return ObdiagResult(ObdiagResult.SUCCESS_CODE, data={"message": "Terminal connection lost"})
         except Exception as e:
             _LOG.exception("Interactive agent session error")
             return ObdiagResult(ObdiagResult.SERVER_ERROR_CODE, error_data=str(e))
@@ -337,7 +364,7 @@ class AiAgentHandler:
     # Single-shot mode — async streaming, no TUI
     # ------------------------------------------------------------------
 
-    def _run_single_shot(self, msg: str, obdiag_tools: list, config: AgentConfig) -> ObdiagResult:
+    def _run_single_shot(self, msg: str, obdiag_tools: list, config: AgentConfig, *, quiet: bool = False, stream: bool = True) -> ObdiagResult:
         from src.handler.agent.tui.agent import create_cli_agent
         from src.handler.agent.tui.config import build_stream_config, create_model
         from src.handler.agent.tui.file_ops import FileOpTracker
@@ -363,9 +390,9 @@ class AiAgentHandler:
                 )
                 thread_id = generate_thread_id()
                 lc_config = build_stream_config(thread_id, _ASSISTANT_ID)
-                console = Console()
+                console = Console(stderr=True) if quiet else Console()
                 file_op_tracker = FileOpTracker(assistant_id=_ASSISTANT_ID, backend=None)
-                await _run_agent_loop(agent, msg, lc_config, console, file_op_tracker)
+                await _run_agent_loop(agent, msg, lc_config, console, file_op_tracker, quiet=quiet, stream=stream)
 
         try:
             asyncio.run(_run())

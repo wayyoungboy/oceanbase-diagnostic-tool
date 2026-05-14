@@ -19,6 +19,7 @@ import time
 import uuid
 import webbrowser
 from collections import deque
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -224,6 +225,46 @@ def save_theme_preference(name: str) -> bool:
         logger.exception("Could not save theme preference")
         return False
     return True
+
+
+def _get_version_info_text() -> str:
+    """Return obdiag agent version information for the `/version` command."""
+    try:
+        from src.common.version import OBDIAG_VERSION
+
+        obdiag_line = f"obdiag version: {OBDIAG_VERSION}"
+    except ImportError:
+        logger.debug("src.common.version module not found")
+        obdiag_line = "obdiag version: unknown"
+    except Exception:
+        logger.warning("Unexpected error looking up obdiag version", exc_info=True)
+        obdiag_line = "obdiag version: unknown"
+
+    try:
+        from src.handler.agent.tui._version import (
+            __version__ as cli_version,
+        )
+
+        cli_line = f"deepagents-cli version: {cli_version}"
+    except ImportError:
+        logger.debug("deepagents_cli._version module not found")
+        cli_line = "deepagents-cli version: unknown"
+    except Exception:
+        logger.warning("Unexpected error looking up CLI version", exc_info=True)
+        cli_line = "deepagents-cli version: unknown"
+
+    try:
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+        sdk_version = _pkg_version("deepagents")
+        sdk_line = f"deepagents (SDK) version: {sdk_version}"
+    except PackageNotFoundError:
+        logger.debug("deepagents SDK package not found in environment")
+        sdk_line = "deepagents (SDK) version: unknown"
+    except Exception:
+        logger.warning("Unexpected error looking up SDK version", exc_info=True)
+        sdk_line = "deepagents (SDK) version: unknown"
+    return f"{obdiag_line}\n{cli_line}\n{sdk_line}"
 
 
 def _extract_model_params_flag(raw_arg: str) -> tuple[str, dict[str, Any] | None]:
@@ -814,6 +855,8 @@ ChatTextArea {
         server_kwargs: dict[str, Any] | None = None,
         mcp_preload_kwargs: dict[str, Any] | None = None,
         model_kwargs: dict[str, Any] | None = None,
+        use_cluster: Callable[[str], tuple[bool, str]] | None = None,
+        current_cluster_info: Callable[[], str] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the Deep Agents application.
@@ -857,6 +900,8 @@ ChatTextArea {
 
                 When provided, model creation runs in a background worker after
                 first paint instead of blocking startup.
+            use_cluster: Optional callback used by `/use <config>` to switch the active obdiag cluster.
+            current_cluster_info: Optional callback used by `/use` with no argument to show current cluster.
             **kwargs: Additional arguments passed to parent
         """
         super().__init__(**kwargs)
@@ -899,6 +944,8 @@ ChatTextArea {
         self._mcp_preload_kwargs = mcp_preload_kwargs
 
         self._model_kwargs = model_kwargs
+        self._use_cluster = use_cluster
+        self._current_cluster_info = current_cluster_info
 
         self._connecting = server_kwargs is not None
         # Extract sandbox type from server kwargs for trace metadata.
@@ -1236,12 +1283,8 @@ ChatTextArea {
             group="startup-thread-prewarm",
         )
 
-        # Optional tool warnings in a thread (shutil.which is sync I/O)
-        self.run_worker(
-            self._check_optional_tools_background,
-            exclusive=True,
-            group="startup-tool-check",
-        )
+        # Optional tool warnings (ripgrep, tavily) disabled for obdiag agent —
+        # these tools are not required for OceanBase diagnostics.
 
         # Auto-submit initial prompt or skill if provided via -m / --skill.
         # This check must come first because _lc_thread_id and _agent are
@@ -2646,7 +2689,7 @@ ChatTextArea {
                 "Commands: /quit, /clear, /offload, /editor, /mcp, "
                 "/model [--model-params JSON] [--default], /notifications, "
                 "/reload, /skill:<name>, /remember, /skill-creator, /theme, "
-                "/tokens, /threads, /trace, "
+                "/tokens, /threads, /trace, /use <cluster>, "
                 "/update, /auto-update, /changelog, /docs, /feedback, /help\n\n"
                 "Interactive Features:\n"
                 "  Enter           Submit your message\n"
@@ -2668,34 +2711,7 @@ ChatTextArea {
             await self._open_url_command(command, cmd)
         elif cmd == "/version":
             await self._mount_message(UserMessage(command))
-            # Show CLI and SDK package versions
-            try:
-                from src.handler.agent.tui._version import (
-                    __version__ as cli_version,
-                )
-
-                cli_line = f"deepagents-cli version: {cli_version}"
-            except ImportError:
-                logger.debug("deepagents_cli._version module not found")
-                cli_line = "deepagents-cli version: unknown"
-            except Exception:
-                logger.warning("Unexpected error looking up CLI version", exc_info=True)
-                cli_line = "deepagents-cli version: unknown"
-            try:
-                from importlib.metadata import (
-                    PackageNotFoundError,
-                    version as _pkg_version,
-                )
-
-                sdk_version = _pkg_version("deepagents")
-                sdk_line = f"deepagents (SDK) version: {sdk_version}"
-            except PackageNotFoundError:
-                logger.debug("deepagents SDK package not found in environment")
-                sdk_line = "deepagents (SDK) version: unknown"
-            except Exception:
-                logger.warning("Unexpected error looking up SDK version", exc_info=True)
-                sdk_line = "deepagents (SDK) version: unknown"
-            await self._mount_message(AppMessage(f"{cli_line}\n{sdk_line}"))
+            await self._mount_message(AppMessage(_get_version_info_text()))
         elif cmd == "/clear":
             self._pending_messages.clear()
             self._queued_widgets.clear()
@@ -2768,6 +2784,21 @@ ChatTextArea {
                     parts.append(model_name)
 
                 await self._mount_message(AppMessage(" · ".join(parts)))
+        elif cmd == "/use" or cmd.startswith("/use "):
+            await self._mount_message(UserMessage(command))
+            arg = command.strip()[len("/use") :].strip()
+            if not self._use_cluster:
+                await self._mount_message(AppMessage("Cluster switching is not available in this session."))
+                return
+            if not arg:
+                current = self._current_cluster_info() if self._current_cluster_info else "Current cluster is unavailable."
+                await self._mount_message(AppMessage(f"{current}\n\nUsage: /use <short_name|full_config_path>"))
+                return
+            ok, message = await asyncio.to_thread(self._use_cluster, arg)
+            if ok:
+                await self._mount_message(AppMessage(message))
+            else:
+                await self._mount_message(ErrorMessage(message))
         elif cmd == "/remember" or cmd.startswith("/remember "):
             # Convenience alias for /skill:remember — shorter and discoverable
             # before skill loading completes.
@@ -3912,15 +3943,23 @@ ChatTextArea {
             worker.cancel()
 
     def action_quit_or_interrupt(self) -> None:
-        """Handle Ctrl+C - interrupt agent, reject approval, or quit on double press.
+        """Handle Ctrl+C - copy selection, interrupt agent, reject approval, or quit on double press.
 
         Priority order:
+        0. If text is selected anywhere, copy to clipboard
         1. If shell command is running, kill it
         2. If approval menu is active, reject it
         3. If agent is running, interrupt it (preserve input)
         4. If double press (quit_pending), quit
         5. Otherwise show quit hint
         """
+        from src.handler.agent.tui.clipboard import copy_selection_to_clipboard
+
+        if self._has_text_selection():
+            copy_selection_to_clipboard(self)
+            self.notify("Copied to clipboard", timeout=2)
+            return
+
         # If shell command is running, cancel the worker
         if self._shell_running and self._shell_worker:
             self._cancel_worker(self._shell_worker)
@@ -3954,6 +3993,15 @@ ChatTextArea {
             self.exit()
         else:
             self._arm_quit_pending("Ctrl+C")
+
+    def _has_text_selection(self) -> bool:
+        """Check if any widget in the app has selected text."""
+        for widget in self.query("*"):
+            if not hasattr(widget, "text_selection") or not widget.text_selection:
+                continue
+            if widget.text_selection.end is not None:
+                return True
+        return False
 
     def _arm_quit_pending(self, shortcut: str) -> None:
         """Set the pending-quit flag and show a matching hint.
@@ -4106,7 +4154,10 @@ ChatTextArea {
             _dispatch_hook_sync("session.end", payload, hooks)
 
         _write_iterm_escape(_ITERM_CURSOR_GUIDE_ON)
-        super().exit(result=result, return_code=return_code, message=message)
+        try:
+            super().exit(result=result, return_code=return_code, message=message)
+        except OSError:
+            pass
 
     def action_toggle_auto_approve(self) -> None:
         """Toggle auto-approve mode for the current session.
@@ -4795,6 +4846,8 @@ async def run_textual_app(
     server_kwargs: dict[str, Any] | None = None,
     mcp_preload_kwargs: dict[str, Any] | None = None,
     model_kwargs: dict[str, Any] | None = None,
+    use_cluster: Callable[[str], tuple[bool, str]] | None = None,
+    current_cluster_info: Callable[[], str] | None = None,
 ) -> AppResult:
     """Run the Textual application.
 
@@ -4832,6 +4885,8 @@ async def run_textual_app(
 
             When provided, model creation runs in a background worker after
             first paint so the splash screen appears immediately.
+        use_cluster: Optional callback used by `/use <config>` to switch the active obdiag cluster.
+        current_cluster_info: Optional callback used by `/use` with no argument to show current cluster.
 
     Returns:
         An `AppResult` with the return code and final thread ID.
@@ -4852,10 +4907,34 @@ async def run_textual_app(
         server_kwargs=server_kwargs,
         mcp_preload_kwargs=mcp_preload_kwargs,
         model_kwargs=model_kwargs,
+        use_cluster=use_cluster,
+        current_cluster_info=current_cluster_info,
     )
+    # Register SIGHUP handler so the app exits cleanly when the terminal
+    # disconnects (e.g. SSH session drops).  Without this, Textual's render
+    # loop keeps writing ANSI escape sequences to the now-dead pty, producing
+    # a stream of garbled control codes.
+    loop = asyncio.get_running_loop()
+    prev_sighup = None
+    if hasattr(signal, "SIGHUP"):
+
+        def _on_sighup() -> None:
+            logger.info("SIGHUP received — terminal lost, exiting app")
+            app.exit(return_code=1, message="Terminal connection lost (SIGHUP)")
+
+        try:
+            prev_sighup = loop.add_signal_handler(signal.SIGHUP, _on_sighup)
+        except (NotImplementedError, OSError):
+            prev_sighup = None
+
     try:
         await app.run_async()
     finally:
+        if hasattr(signal, "SIGHUP"):
+            try:
+                loop.remove_signal_handler(signal.SIGHUP)
+            except (NotImplementedError, OSError):
+                pass
         # Guarantee server cleanup regardless of how the app exits.
         # Covers both the pre-started server_proc path and the deferred
         # server_kwargs path (where the background worker sets _server_proc).
