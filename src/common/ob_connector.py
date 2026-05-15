@@ -242,12 +242,17 @@ class OBConnector(object):
                 cursor.close()
 
     def callproc(self, procname, args=()):
+        # Use raw CALL SQL instead of cursor.callproc() because PyMySQL >= 1.1.3
+        # wraps identifiers in backticks (e.g. `DBMS_WORKLOAD_REPOSITORY`.`ASH_REPORT`),
+        # which OceanBase does not support for dotted procedure names.
         if self.conn is None:
             self._connect_db()
         else:
             self.conn.ping(reconnect=True)
         cursor = self.conn.cursor()
-        cursor.callproc(procname, args)
+        placeholders = ",".join(["%s"] * len(args))
+        sql = f"CALL {procname}({placeholders})"
+        cursor.execute(sql, args)
         ret = cursor.fetchall()
         return ret
 
