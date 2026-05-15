@@ -89,42 +89,41 @@ def copy_selection_to_clipboard(app: App) -> None:
 
     combined_text = "\n".join(selected_texts)
 
-    # Try multiple clipboard methods
-    # Prefer pyperclip/app clipboard first (works reliably on local machines)
-    # OSC 52 is last resort (for SSH/remote where native clipboard unavailable)
-    copy_methods = [app.copy_to_clipboard]
+    copied = False
 
     # Try pyperclip if available (preferred - uses pbcopy on macOS)
     try:
         import pyperclip
 
-        copy_methods.insert(0, pyperclip.copy)
+        pyperclip.copy(combined_text)
+        copied = True
     except ImportError:
         pass
+    except (OSError, RuntimeError, TypeError) as e:
+        logger.debug("Clipboard copy method pyperclip.copy failed: %s", e, exc_info=True)
 
-    # OSC 52 as fallback for remote/SSH sessions
-    copy_methods.append(_copy_osc52)
+    if not copied:
+        for copy_fn in (app.copy_to_clipboard, _copy_osc52):
+            try:
+                copy_fn(combined_text)
+                copied = True
+            except (OSError, RuntimeError, TypeError) as e:
+                logger.debug(
+                    "Clipboard copy method %s failed: %s",
+                    getattr(copy_fn, "__name__", repr(copy_fn)),
+                    e,
+                    exc_info=True,
+                )
 
-    for copy_fn in copy_methods:
-        try:
-            copy_fn(combined_text)
-            # Use markup=False to prevent copied text from being parsed as Rich markup
-            app.notify(
-                f'"{_shorten_preview(selected_texts)}" copied',
-                severity="information",
-                timeout=2,
-                markup=False,
-            )
-        except (OSError, RuntimeError, TypeError) as e:
-            logger.debug(
-                "Clipboard copy method %s failed: %s",
-                getattr(copy_fn, "__name__", repr(copy_fn)),
-                e,
-                exc_info=True,
-            )
-            continue
-        else:
-            return
+    if copied:
+        # Use markup=False to prevent copied text from being parsed as Rich markup
+        app.notify(
+            f'"{_shorten_preview(selected_texts)}" copied',
+            severity="information",
+            timeout=2,
+            markup=False,
+        )
+        return
 
     # If all methods fail, still notify but warn
     app.notify(

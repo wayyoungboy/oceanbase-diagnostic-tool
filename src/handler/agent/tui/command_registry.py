@@ -124,6 +124,12 @@ COMMANDS: tuple[SlashCommand, ...] = (
         hidden_keywords="cost",
     ),
     SlashCommand(
+        name="/use",
+        description="Switch active obdiag cluster config",
+        bypass_tier=BypassTier.QUEUED,
+        hidden_keywords="cluster config obdiag",
+    ),
+    SlashCommand(
         name="/reload",
         description="Reload config from environment variables and .env",
         bypass_tier=BypassTier.QUEUED,

@@ -22,6 +22,25 @@ from prettytable import from_db_cursor
 import pymysql as mysql
 
 
+class _NullStdio:
+    """Silent stdio fallback when no context is provided."""
+
+    def verbose(self, *args, **kwargs):
+        pass
+
+    def warn(self, *args, **kwargs):
+        pass
+
+    def error(self, *args, **kwargs):
+        pass
+
+    def print(self, *args, **kwargs):
+        pass
+
+    def exception(self, *args, **kwargs):
+        pass
+
+
 class OBConnector(object):
     # sql be upper
     filter_sql_list = []
@@ -44,7 +63,7 @@ class OBConnector(object):
         self.password = str(password)
         self.timeout = timeout
         self.conn = None
-        self.stdio = context.stdio
+        self.stdio = context.stdio if context else _NullStdio()
         self.database = database
         self.init()
 

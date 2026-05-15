@@ -26,6 +26,15 @@ import yaml
 from src.common.constant import obdiag_path
 
 
+def _redact_passwords(obj: Any) -> Any:
+    """Deep-copy a config dict, replacing values whose keys contain 'password' with '***'."""
+    if isinstance(obj, dict):
+        return {k: ("***" if "password" in k.lower() else _redact_passwords(v)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_passwords(item) for item in obj]
+    return obj
+
+
 def _validate_config_args(arguments: Dict[str, Any]) -> Optional[str]:
     """Return an error message string if required fields are missing, else None."""
     missing = []
@@ -252,7 +261,8 @@ def create_config_gen_tools(stdio: Any = None) -> list:
             msg = f"Configuration file generated successfully!\n\nOutput: {output_path}\nSize: {file_size} bytes\n"
             if backup_path:
                 msg += f"Backup: {backup_path}\n"
-            msg += "\n" + yaml.dump(config, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            redacted = _redact_passwords(config)
+            msg += "\n" + yaml.dump(redacted, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
             if stdio:
                 stdio.verbose(f"Config generated at {output_path}")

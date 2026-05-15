@@ -51,7 +51,13 @@ def create_db_tools(deps_getter: Callable[[], AgentDependencies]) -> list:
         if not connector:
             if cluster_config_path:
                 return f"Error: Cannot connect to cluster from config '{cluster_config_path}'. " "Please verify the file exists and contains valid 'obcluster' settings " "(db_host, db_port, tenant_sys.user; tenant_sys.password may be empty)."
-            return "Error: No database connection available. " "Use `/use <config_path>` in the agent REPL to switch cluster, or pass cluster_config_path."
+            cfg_file = deps.config_path or "(not set)"
+            return (
+                f"Error: No database connection available (config: {cfg_file}). "
+                "Check that db_host, db_port, and tenant_sys.user are correct in the config. "
+                "You can pass cluster_config_path to specify a different cluster. "
+                "Check agent logs for connection error details."
+            )
 
         target = cluster_config_path or deps.config_path or "default cluster"
         try:

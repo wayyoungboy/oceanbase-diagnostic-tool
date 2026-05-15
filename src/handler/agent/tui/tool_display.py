@@ -24,6 +24,9 @@ _HIDDEN_CHAR_MARKER = " [hidden chars removed]"
 """Marker appended to display values that had dangerous Unicode stripped, so
 users know the value was modified for safety."""
 
+_SENSITIVE_ARG_KEYWORDS = ("password", "secret", "token", "api_key", "apikey", "credential")
+"""Substrings that, when found in an argument name (case-insensitive), indicate the value should be masked in display output."""
+
 
 def _format_timeout(seconds: int) -> str:
     """Format timeout in human-readable units (e.g., 300 -> '5m', 3600 -> '1h').
@@ -235,8 +238,15 @@ def format_tool_display(tool_name: str, tool_args: dict) -> str:
             return f"{prefix} {tool_name}({count} items)"
 
     # Fallback: generic formatting for unknown tools
-    # Show all arguments in key=value format
-    args_str = ", ".join(f"{_sanitize_display_value(k, max_length=30)}=" f"{_sanitize_display_value(v, max_length=50)}" for k, v in tool_args.items())
+    # Show all arguments in key=value format; mask sensitive values (passwords, tokens, etc.)
+    parts = []
+    for k, v in tool_args.items():
+        k_display = _sanitize_display_value(k, max_length=30)
+        if any(s in str(k).lower() for s in _SENSITIVE_ARG_KEYWORDS):
+            parts.append(f"{k_display}=***")
+        else:
+            parts.append(f"{k_display}={_sanitize_display_value(v, max_length=50)}")
+    args_str = ", ".join(parts)
     return f"{prefix} {tool_name}({args_str})"
 
 

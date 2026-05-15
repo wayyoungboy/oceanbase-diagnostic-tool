@@ -108,19 +108,25 @@ class ToolApprovalWidget(Vertical):
 class GenericApprovalWidget(ToolApprovalWidget):
     """Generic approval widget for unknown tools."""
 
+    _SENSITIVE_KEYWORDS = ("password", "secret", "token", "api_key", "apikey", "credential")
+
     def compose(self) -> ComposeResult:
         """Compose the generic tool display.
 
         Yields:
             Static widgets displaying each key-value pair from tool data.
+            Sensitive values (passwords, tokens, etc.) are masked.
         """
         for key, value in self.data.items():
             if value is None:
                 continue
-            value_str = str(value)
-            if len(value_str) > _MAX_VALUE_LEN:
-                hidden = len(value_str) - _MAX_VALUE_LEN
-                value_str = value_str[:_MAX_VALUE_LEN] + f"... ({hidden} more chars)"
+            if any(s in str(key).lower() for s in self._SENSITIVE_KEYWORDS):
+                value_str = "***"
+            else:
+                value_str = str(value)
+                if len(value_str) > _MAX_VALUE_LEN:
+                    hidden = len(value_str) - _MAX_VALUE_LEN
+                    value_str = value_str[:_MAX_VALUE_LEN] + f"... ({hidden} more chars)"
             yield Static(f"{key}: {value_str}", markup=False, classes="approval-description")
 
 

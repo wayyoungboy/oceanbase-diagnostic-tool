@@ -63,6 +63,8 @@ def truncate_for_agent(
 
 OBDIAG_COMMANDS = {
     "gather_log": "obdiag gather log",
+    "gather_scene_run": "obdiag gather scene run",
+    "gather_scene_list": "obdiag gather scene list",
     "gather_plan_monitor": "obdiag gather plan_monitor",
     "gather_sysstat": "obdiag gather sysstat",
     "gather_perf": "obdiag gather perf",
@@ -90,6 +92,8 @@ OBDIAG_TOOL_SUMMARY_ZH: Dict[str, str] = {
     "gather_ash": "采集 ASH 活跃会话历史",
     "gather_awr": "采集 AWR / 性能报告",
     "gather_plan_monitor": "按 trace_id 采集 SQL 计划监控",
+    "gather_scene_run": "执行 gather scene 场景采集",
+    "gather_scene_list": "列出可用 gather scene 场景",
     "analyze_log": "分析集群 observer 侧日志",
     "check_cluster": "执行集群健康巡检",
     "check_list": "列出可用巡检项",
@@ -282,6 +286,8 @@ def _resolve_config(override: Optional[str], config_path_getter: Callable[[], st
 
 
 def _run(cmd: str, args: dict, cfg: str, ok: str, fail: str, stdio) -> str:
+    if "store_dir" in args and args["store_dir"]:
+        args["store_dir"] = os.path.abspath(os.path.expanduser(args["store_dir"]))
     result = execute_obdiag_command(cmd, args, cfg, stdio)
     return truncate_for_agent(format_command_output(result, ok, fail), label="obdiag")
 
@@ -573,6 +579,66 @@ def create_obdiag_tools(config_path_getter: Callable[[], str], stdio) -> list:
             args["store_dir"] = store_dir
         return _run("gather_plan_monitor", args, cfg, "Plan monitor gathering completed.", "Plan monitor gathering failed.", stdio)
 
+    def gather_scene_run(
+        scene: str,
+        since: Optional[str] = "30m",
+        from_time: Optional[str] = None,
+        to_time: Optional[str] = None,
+        env: Optional[List[str]] = None,
+        store_dir: Optional[str] = None,
+        temp_dir: Optional[str] = None,
+        skip_type: Optional[str] = None,
+        redact: Optional[str] = None,
+        cluster_config_path: Optional[str] = None,
+    ) -> str:
+        """Run a gather scene (obdiag gather scene run).
+
+        Use for YAML/Python-defined scene tasks under plugins/gather/tasks, e.g. observer.cluster_down,
+        observer.memory, observer.io, obproxy.restart, or other.application_error.
+
+        Args:
+            scene: Gather scene name, e.g. "observer.cluster_down"; multiple scenes can be separated by ";" or ","
+            since: Relative window e.g. '30m', '1h', '2d'. Ignored by obdiag when both from_time and to_time are provided.
+            from_time: Start time yyyy-mm-dd hh:mm:ss
+            to_time: End time yyyy-mm-dd hh:mm:ss
+            env: Scene env overrides as key=value strings, e.g. host=127.0.0.1 port=2881 user=root@sys
+            store_dir: Output directory
+            temp_dir: Temp dir on remote nodes
+            skip_type: Skip gather type, choices include ssh or sql
+            redact: Desensitization options
+            cluster_config_path: Short name or full path for non-default cluster
+        """
+        cfg = _resolve_config(cluster_config_path, config_path_getter)
+        args: dict = {"scene": scene}
+        if from_time:
+            args["from"] = from_time
+        if to_time:
+            args["to"] = to_time
+        if since and not (from_time and to_time):
+            args["since"] = since
+        if env:
+            args["env"] = env
+        if store_dir:
+            args["store_dir"] = store_dir
+        if temp_dir:
+            args["temp_dir"] = temp_dir
+        if skip_type:
+            args["skip_type"] = skip_type
+        if redact:
+            args["redact"] = redact
+        return _run("gather_scene_run", args, cfg, "Gather scene completed.", "Gather scene failed.", stdio)
+
+    def gather_scene_list() -> str:
+        """List all available gather scenes (obdiag gather scene list).
+
+        Call this when the user asks which gather scenes exist, or before choosing a scene name.
+        """
+        result = execute_obdiag_command("gather_scene_list", {}, None, stdio)
+        output = result.get("stdout", "")
+        if result.get("stderr"):
+            output += "\n" + result["stderr"]
+        return truncate_for_agent(f"Available gather scenes:\n\n{output}", label="obdiag")
+
     def analyze_log(
         files: Optional[List[str]] = None,
         from_time: Optional[str] = None,
@@ -643,14 +709,13 @@ def create_obdiag_tools(config_path_getter: Callable[[], str], stdio) -> list:
             args["store_dir"] = store_dir
         return _run("check", args, cfg, "Health check completed.", "Health check failed.", stdio)
 
-    def check_list(cluster_config_path: Optional[str] = None) -> str:
+    def check_list() -> str:
         """List all available health check tasks.
 
         Args:
             cluster_config_path: Optional short name or full path for non-default cluster.
         """
-        cfg = _resolve_config(cluster_config_path, config_path_getter)
-        result = execute_obdiag_command("check_list", {}, cfg, stdio)
+        result = execute_obdiag_command("check_list", {}, None, stdio)
         output = result.get("stdout", "")
         if result.get("stderr"):
             output += "\n" + result["stderr"]
@@ -669,14 +734,13 @@ def create_obdiag_tools(config_path_getter: Callable[[], str], stdio) -> list:
         cfg = _resolve_config(cluster_config_path, config_path_getter)
         return _run("rca_run", {"scene": scene}, cfg, "Root cause analysis completed.", "Root cause analysis failed.", stdio)
 
-    def rca_list(cluster_config_path: Optional[str] = None) -> str:
+    def rca_list() -> str:
         """List all available root cause analysis scenarios (obdiag rca list).
 
         Args:
             cluster_config_path: Optional short name or full path for non-default cluster.
         """
-        cfg = _resolve_config(cluster_config_path, config_path_getter)
-        result = execute_obdiag_command("rca_list", {}, cfg, stdio)
+        result = execute_obdiag_command("rca_list", {}, None, stdio)
         output = result.get("stdout", "")
         if result.get("stderr"):
             output += "\n" + result["stderr"]
@@ -760,6 +824,8 @@ def create_obdiag_tools(config_path_getter: Callable[[], str], stdio) -> list:
         gather_ash,
         gather_awr,
         gather_plan_monitor,
+        gather_scene_run,
+        gather_scene_list,
         analyze_log,
         check_cluster,
         check_list,

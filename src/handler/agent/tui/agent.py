@@ -951,6 +951,10 @@ def create_cli_agent(
     agent_middleware = []
     agent_middleware.append(ConfigurableModelMiddleware())
 
+    from src.handler.agent.tui.tool_call_repair import ToolCallRepairMiddleware
+
+    agent_middleware.append(ToolCallRepairMiddleware())
+
     # Token state: adds _context_tokens to graph state (checkpointed, not
     # passed to model).  Must be registered before any middleware that might
     # read the channel.
@@ -972,7 +976,7 @@ def create_cli_agent(
 
         agent_middleware.append(
             MemoryMiddleware(
-                backend=FilesystemBackend(),
+                backend=FilesystemBackend(virtual_mode=False),
                 sources=memory_sources,
             )
         )
@@ -990,19 +994,11 @@ def create_cli_agent(
         if project_agent_skills_dir:
             sources.append(str(project_agent_skills_dir))
 
-        # Experimental: Claude Code skill directories
-        user_claude_skills_dir = settings.get_user_claude_skills_dir()
-        if user_claude_skills_dir.exists():
-            sources.append(str(user_claude_skills_dir))
-        project_claude_skills_dir = settings.get_project_claude_skills_dir()
-        if project_claude_skills_dir:
-            sources.append(str(project_claude_skills_dir))
-
         from src.handler.agent.tui.skills.skill_crypto import DecryptingFilesystemBackend
 
         agent_middleware.append(
             SkillsMiddleware(
-                backend=DecryptingFilesystemBackend(FilesystemBackend()),
+                backend=DecryptingFilesystemBackend(FilesystemBackend(virtual_mode=False)),
                 sources=sources,
             )
         )
@@ -1023,12 +1019,13 @@ def create_cli_agent(
             # on the execute tool natively.
             backend = LocalShellBackend(
                 root_dir=root_dir,
+                virtual_mode=False,
                 inherit_env=True,
                 env=shell_env,
             )
         else:
             # No shell access - use plain FilesystemBackend
-            backend = FilesystemBackend(root_dir=root_dir)
+            backend = FilesystemBackend(root_dir=root_dir, virtual_mode=False)
     else:
         # ========== REMOTE SANDBOX MODE ==========
         backend = sandbox  # Remote sandbox (ModalSandbox, etc.)

@@ -28,7 +28,7 @@ def get_obdiag_workspace():
     获取 obdiag 工作空间路径（已展开的绝对路径）。
     优先使用环境变量 OBDIAG_HOME，未设置时使用默认值 ~/.obdiag。
     """
-    return os.path.expanduser(os.environ.get(OBDIAG_HOME_ENV, OBDIAG_WORKSPACE_DEFAULT))
+    return os.path.abspath(os.path.expanduser(os.environ.get(OBDIAG_HOME_ENV, OBDIAG_WORKSPACE_DEFAULT)))
 
 
 def obdiag_path(*parts):
@@ -48,7 +48,7 @@ def expand_obdiag_path(path):
     if path and isinstance(path, str) and path.startswith("~/.obdiag"):
         suffix = path[len("~/.obdiag") :].lstrip("/")
         return obdiag_path(suffix) if suffix else get_obdiag_workspace()
-    return os.path.expanduser(path) if path else path
+    return os.path.abspath(os.path.expanduser(path)) if path else path
 
 
 class _const:
